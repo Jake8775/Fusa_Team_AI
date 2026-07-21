@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; height: 0; overflow: hidden; }
+</style>
+</head>
+<body>
+<script>
+/**
+ * Streamlit 컴포넌트 프로토콜 (CDN 의존 없는 수동 구현)
+ * 역할: Streamlit Python → JS args 수신 → localhost:8765 릴레이 호출 → 결과 반환
+ */
+
+const RELAY_URL = "http://localhost:8765";
+let lastRequestId = null;
+
+// ── Streamlit 메시지 전송 헬퍼 ──────────────────────────────────────────────
+
+function send(type, extra) {
+  window.parent.postMessage({ isStreamlitMessage: true, type, ...extra }, "*");
+}
+
+// ── Streamlit → 컴포넌트: render 이벤트 수신 ───────────────────────────────
+
+window.addEventListener("message", async function(event) {
+  if (!event.data || event.data.type !== "streamlit:render") return;
+
+  var args = event.data.args;
+  if (!args || !args.request_id) return;
+
+  // 동일 request_id 중복 실행 방지
+  if (args.request_id === lastRequestId) return;
+  lastRequestId = args.request_id;
+
+  try {
+    var resp = await fetch(RELAY_URL + "/relay", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        engine:        args.engine,
+        api_key:       args.api_key,
+        model:         args.model,
+        system_prompt: args.system_prompt,
+        user_message:  args.user_message,
+      }),
+    });
+
+    var data = await resp.json();
+    send("streamlit:componentChanged", {
+      value: {
+        request_id: args.request_id,
+        result:     data.result  || null,
+        elapsed:    data.elapsed || 0,
+        error:      data.error   || null,
+      }
+    });
+
+  } catch (e) {
+    send("streamlit:componentChanged", {
+      value: {
+        request_id: args.request_id,
+        result:     null,
+        elapsed:    0,
+        error:      "릴레이 EXE 연결 실패: " + e.message +
+                    "\n\nHMG_Relay.exe 를 먼저 실행해주세요.",
+      }
+    });
+  }
+});
+
+// ── 컴포넌트 준비 알림 ────────────────────────────────────────────────────
+
+send("streamlit:componentReady", { apiVersion: 1 });
+send("streamlit:setFrameHeight", { height: 0 });
+</script>
+</body>
+</html>

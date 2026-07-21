@@ -1,0 +1,16 @@
+# PyInstaller 빌드 임시 파일 (EXE 본체인 dist/는 git에 포함)
+build/
+*.spec
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# 환경
+.env
+venv/
+.venv/
+
+# IDE
+.vscode/

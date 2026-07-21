@@ -9,6 +9,8 @@ os.environ.setdefault("PYTHONUTF8", "1")
 import streamlit as st
 import time
 import subprocess
+import uuid
+from relay_component import relay_call
 
 
 def get_git_version() -> str:
@@ -67,91 +69,8 @@ DEFAULT_SYSTEM_PROMPT = """당신은 창의적인 글쓰기 전문가입니다.
 - 지정된 장르와 분량을 지켜야 합니다."""
 
 
-# ── API 호출 함수 ──────────────────────────────────────────────────────────────
-def call_gpt(api_key: str, model: str, system_prompt: str, user_message: str) -> str:
-    from openai import AzureOpenAI
-    client = AzureOpenAI(
-        api_key=api_key,
-        azure_endpoint=BASE_URL,
-        api_version=GPT_API_VERSION,
-        timeout=120,
-        max_retries=0,
-    )
-    messages = []
-    if system_prompt.strip():
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": user_message})
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=0.9,
-        max_completion_tokens=4096,
-    )
-    return response.choices[0].message.content or ""
-
-
-def call_claude(api_key: str, model: str, system_prompt: str, user_message: str) -> str:
-    import anthropic
-    client = anthropic.Anthropic(
-        api_key=api_key,
-        base_url=BASE_URL,
-        max_retries=0,
-        timeout=anthropic.Timeout(connect=30, read=120, write=60, pool=30),
-    )
-    kwargs = dict(
-        model=model,
-        max_tokens=8192,
-        temperature=0.9,
-        messages=[{"role": "user", "content": user_message}],
-    )
-    if system_prompt.strip():
-        kwargs["system"] = system_prompt
-    response = client.messages.create(**kwargs)
-    return response.content[0].text
-
-
-def call_gemini(api_key: str, model: str, system_prompt: str, user_message: str) -> str:
-    from google import genai
-    from google.genai.types import HttpOptions, GenerateContentConfig
-    base = GEMINI_BASE_URL + api_key
-    client = genai.Client(
-        api_key=api_key,
-        http_options=HttpOptions(api_version="v1", base_url=base),
-    )
-    config = GenerateContentConfig(temperature=0.9, max_output_tokens=8192)
-    if system_prompt.strip():
-        config.system_instruction = system_prompt
-    response = client.models.generate_content(
-        model=model, contents=user_message, config=config,
-    )
-    return response.text or ""
-
-
-def call_api(engine: str, api_key: str, model: str,
-             system_prompt: str, user_message: str) -> str:
-    if engine == "GPT":
-        return call_gpt(api_key, model, system_prompt, user_message)
-    elif engine == "Claude":
-        return call_claude(api_key, model, system_prompt, user_message)
-    elif engine == "Gemini":
-        return call_gemini(api_key, model, system_prompt, user_message)
-    raise ValueError(f"알 수 없는 엔진: {engine}")
-
-
-def load_api_key(path_or_key: str) -> str:
-    """파일 경로면 읽고, 아니면 그대로 반환"""
-    stripped = path_or_key.strip()
-    if stripped.endswith(".txt"):
-        try:
-            for enc in ["utf-8-sig", "utf-8", "euc-kr", "cp949"]:
-                try:
-                    with open(stripped, encoding=enc) as f:
-                        return f.read().strip()
-                except UnicodeDecodeError:
-                    continue
-        except FileNotFoundError:
-            pass
-    return stripped
+# API 호출 함수는 relay.py(EXE)로 이전
+# 이 앱은 UI + 릴레이 컴포넌트 연동만 담당
 
 
 # ── Streamlit UI ───────────────────────────────────────────────────────────────
@@ -168,6 +87,20 @@ st.caption("단어 몇 개를 입력하면 AI가 글을 써드립니다... 🚀"
 with st.sidebar:
     st.header("⚙️ 설정")
     st.caption(f"ver. {get_git_version()}")
+
+    # ── 릴레이 EXE 다운로드 (앱 진입 시 항상 표시) ──────────────────────────
+    exe_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist", "HMG_Relay.exe")
+    if os.path.exists(exe_path):
+        with open(exe_path, "rb") as _f:
+            st.download_button(
+                label="⬇️ HMG_Relay.exe 다운로드",
+                data=_f,
+                file_name="HMG_Relay.exe",
+                mime="application/octet-stream",
+                use_container_width=True,
+            )
+        st.caption("다운로드 후 실행하고 이 앱을 사용하세요.")
+    st.divider()
 
     st.subheader("API 키")
     uploaded_key_file = st.file_uploader(
@@ -221,11 +154,8 @@ target_length = LENGTHS[length_label]
 # ── 생성 버튼 ──────────────────────────────────────────────────────────────────
 generate_btn = st.button("✨ 글짓기 시작!", type="primary", use_container_width=True)
 
-# ── 결과 영역 ──────────────────────────────────────────────────────────────────
-result_area = st.empty()
-
+# ── 버튼 클릭: 릴레이 요청 생성 ──────────────────────────────────────────────
 if generate_btn:
-    # 입력 검증
     if not api_key_input.strip():
         st.warning("사이드바에서 API Key .txt 파일을 드래그&드롭해 주세요.")
         st.stop()
@@ -235,40 +165,70 @@ if generate_btn:
         st.warning("단어를 쉼표로 구분하여 2개 이상 입력해 주세요.")
         st.stop()
 
-    api_key = api_key_input
-
-    words_str = ", ".join(f"**{w}**" for w in words_raw)
     user_message = (
         f"다음 단어를 모두 포함하여 {genre} 장르의 글을 작성해 주세요.\n"
         f"단어 목록: {', '.join(words_raw)}\n"
         f"목표 분량: 약 {target_length}자\n\n"
         f"단어를 자연스럽게 이야기 속에 녹여주세요."
     )
+    st.session_state.relay_req = {
+        "request_id":   str(uuid.uuid4()),
+        "engine":       engine,
+        "api_key":      api_key_input,
+        "model":        model,
+        "system_prompt": system_prompt,
+        "user_message": user_message,
+    }
+    st.session_state.relay_meta = {
+        "words_raw":    words_raw,
+        "genre":        genre,
+        "length_label": length_label,
+        "engine":       engine,
+        "model":        model,
+    }
+    st.session_state.relay_res = None
 
-    with result_area.container():
+# ── 릴레이 컴포넌트 (비동기, 비표시) ─────────────────────────────────────────
+req = st.session_state.get("relay_req")
+if req:
+    comp = relay_call(**req)
+    if comp is not None and comp.get("request_id") == req["request_id"]:
+        st.session_state.relay_res = comp
+        st.session_state.relay_req = None
+        st.rerun()
+
+# ── 결과 표시 ──────────────────────────────────────────────────────────────────
+if st.session_state.get("relay_req"):
+    st.info("🔄 릴레이 EXE가 내부 API를 호출 중입니다...")
+
+elif st.session_state.get("relay_res"):
+    res  = st.session_state.relay_res
+    meta = st.session_state.get("relay_meta", {})
+
+    if res.get("error"):
+        st.error(f"API 호출 오류: {res['error']}")
+    else:
+        result  = res["result"]
+        elapsed = res["elapsed"]
+        words_str = ", ".join(f"**{w}**" for w in meta.get("words_raw", []))
+
         st.markdown("---")
-        st.markdown(f"**입력 단어:** {words_str} &nbsp;|&nbsp; **장르:** {genre} &nbsp;|&nbsp; **분량:** {length_label}")
-        with st.spinner("AI가 글을 쓰고 있습니다..."):
-            try:
-                start = time.time()
-                result = call_api(engine, api_key, model, system_prompt, user_message)
-                elapsed = time.time() - start
-
-                st.success(f"완성! ({elapsed:.1f}초)")
-                st.markdown("### 완성된 글")
-                st.markdown(
-                    f'<div style="background:#f8f9fa;padding:20px;border-radius:8px;'
-                    f'border-left:4px solid #4CAF50;line-height:1.8;font-size:1.05em;">'
-                    f'{result.replace(chr(10), "<br>")}'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
-                st.caption(f"모델: {engine} / {model} | 글자 수: {len(result)}자")
-
-                # 복사용 텍스트
-                with st.expander("텍스트 복사용"):
-                    st.text_area("결과", result, height=200, label_visibility="collapsed")
-
-            except Exception as e:
-                st.error(f"API 호출 오류: {e}")
-                st.info("API Key, 엔진/모델 선택, 네트워크 연결을 확인해 주세요.")
+        st.markdown(
+            f"**입력 단어:** {words_str} &nbsp;|&nbsp; "
+            f"**장르:** {meta.get('genre','')} &nbsp;|&nbsp; "
+            f"**분량:** {meta.get('length_label','')}"
+        )
+        st.success(f"완성! ({elapsed:.1f}초)")
+        st.markdown("### 완성된 글")
+        st.markdown(
+            f'<div style="background:#f8f9fa;padding:20px;border-radius:8px;'
+            f'border-left:4px solid #4CAF50;line-height:1.8;font-size:1.05em;">'
+            f'{result.replace(chr(10), "<br>")}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            f"모델: {meta.get('engine','')} / {meta.get('model','')} | 글자 수: {len(result)}자"
+        )
+        with st.expander("텍스트 복사용"):
+            st.text_area("결과", result, height=200, label_visibility="collapsed")
