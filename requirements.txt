@@ -1,1 +1,8 @@
 streamlit
+openai
+anthropic
+google-genai
+pandas
+pillow
+requests
+openpyxl

@@ -177,7 +177,6 @@ with st.sidebar:
     )
 
     st.divider()
-    st.caption("🔄 코드 수정 후 Ctrl+S → 브라우저 Rerun 자동 감지")
 
 # ── 메인 입력 영역 ─────────────────────────────────────────────────────────────
 col1, col2 = st.columns([2, 1])
