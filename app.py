@@ -5,6 +5,27 @@
 
 import streamlit as st
 import time
+import subprocess
+import os
+
+
+def get_git_version() -> str:
+    try:
+        root = os.path.dirname(os.path.abspath(__file__))
+        # VERSION 파일: 1행=major, 2행=major 올릴 때의 커밋 기준값
+        with open(os.path.join(root, "VERSION"), encoding="utf-8") as f:
+            lines = f.read().strip().splitlines()
+        major = int(lines[0])
+        base = int(lines[1]) if len(lines) > 1 else 0
+        # git 전체 커밋 수 - 기준값 = minor
+        r = subprocess.run(
+            ["git", "rev-list", "--count", "HEAD"],
+            capture_output=True, text=True, cwd=root,
+        )
+        minor = max(0, int(r.stdout.strip()) - base) if r.returncode == 0 else 0
+        return f"{major}.{minor:02d}"
+    except Exception:
+        return "dev"
 
 # ── 상수 ──────────────────────────────────────────────────────────────────────
 BASE_URL = "https://internal-apigw-kr.hmg-corp.io/hchat-in/api/v3"
@@ -144,6 +165,7 @@ st.caption("단어 몇 개를 입력하면 AI가 글을 써드립니다... 🚀"
 # ── 사이드바 (QA팀 프롬프트 조정 영역) ────────────────────────────────────────
 with st.sidebar:
     st.header("⚙️ 설정")
+    st.caption(f"ver. {get_git_version()}")
 
     st.subheader("API 키")
     uploaded_key_file = st.file_uploader(
