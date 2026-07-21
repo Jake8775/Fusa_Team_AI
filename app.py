@@ -3,10 +3,12 @@
 단어 몇 개를 입력하면 AI가 글을 써드립니다.
 """
 
+import os
+os.environ.setdefault("PYTHONUTF8", "1")
+
 import streamlit as st
 import time
 import subprocess
-import os
 
 
 def get_git_version() -> str:
