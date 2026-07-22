@@ -48,7 +48,7 @@ window.addEventListener("message", async function(event) {
     });
 
     var data = await resp.json();
-    send("streamlit:componentChanged", {
+    send("streamlit:setComponentValue", {
       value: {
         request_id: args.request_id,
         result:     data.result  || null,
@@ -58,7 +58,7 @@ window.addEventListener("message", async function(event) {
     });
 
   } catch (e) {
-    send("streamlit:componentChanged", {
+    send("streamlit:setComponentValue", {
       value: {
         request_id: args.request_id,
         result:     null,

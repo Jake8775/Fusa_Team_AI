@@ -126,23 +126,19 @@ def _call_claude(api_key, model, system_prompt, user_message):
 
 
 def _call_gemini(api_key, model, system_prompt, user_message):
-    # NOTE: HMG 게이트웨이 Gemini URL 패턴 — 실제 동작 확인 필요
-    url = f"{BASE_URL}/v1/models/{model}:generateContent?key={api_key}"
-    body = {
-        "contents": [{"parts": [{"text": user_message}]}],
-        "generationConfig": {"temperature": 0.9, "maxOutputTokens": 8192},
-    }
-    if system_prompt.strip():
-        body["systemInstruction"] = {"parts": [{"text": system_prompt}]}
-
-    resp = httpx.post(
-        url,
-        headers={"Content-Type": "application/json"},
-        json=body,
-        timeout=TIMEOUT,
+    from google import genai
+    from google.genai.types import HttpOptions, GenerateContentConfig
+    GEMINI_BASE_URL = "https://internal-apigw-kr.hmg-corp.io/hchat-in/api/v3?key="
+    base = GEMINI_BASE_URL + api_key
+    client = genai.Client(
+        api_key=api_key,
+        http_options=HttpOptions(api_version="v1", base_url=base),
     )
-    resp.raise_for_status()
-    return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+    config = GenerateContentConfig(temperature=0.9, max_output_tokens=8192)
+    if system_prompt.strip():
+        config.system_instruction = system_prompt
+    resp = client.models.generate_content(model=model, contents=user_message, config=config)
+    return resp.text or ""
 
 
 if __name__ == "__main__":
