@@ -7,6 +7,7 @@ import os
 os.environ.setdefault("PYTHONUTF8", "1")
 
 import asyncio
+import base64
 import time
 
 import httpx
@@ -47,21 +48,22 @@ async def relay(request: Request):
     model         = body["model"]
     system_prompt = body.get("system_prompt", "")
     user_message  = body["user_message"]
+    images        = body.get("images", [])  # [{mime, b64}]
 
     start = time.time()
     try:
         loop = asyncio.get_event_loop()
         if engine == "GPT":
             result = await loop.run_in_executor(
-                None, _call_gpt, api_key, model, system_prompt, user_message
+                None, _call_gpt, api_key, model, system_prompt, user_message, images
             )
         elif engine == "Claude":
             result = await loop.run_in_executor(
-                None, _call_claude, api_key, model, system_prompt, user_message
+                None, _call_claude, api_key, model, system_prompt, user_message, images
             )
         elif engine == "Gemini":
             result = await loop.run_in_executor(
-                None, _call_gemini, api_key, model, system_prompt, user_message
+                None, _call_gemini, api_key, model, system_prompt, user_message, images
             )
         else:
             raise ValueError(f"Unknown engine: {engine}")
@@ -80,7 +82,7 @@ async def relay(request: Request):
 
 # ── 직접 HTTP 호출 (SDK 없음) ─────────────────────────────────────────────────
 
-def _call_gpt(api_key, model, system_prompt, user_message):
+def _call_gpt(api_key, model, system_prompt, user_message, images=None):
     url = (
         f"{BASE_URL}/openai/deployments/{model}/chat/completions"
         f"?api-version={GPT_API_VERSION}"
@@ -88,7 +90,19 @@ def _call_gpt(api_key, model, system_prompt, user_message):
     messages = []
     if system_prompt.strip():
         messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": user_message})
+
+    if images:
+        content = []
+        for img in images:
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:{img['mime']};base64,{img['b64']}"},
+            })
+        content.append({"type": "text", "text": user_message})
+    else:
+        content = user_message
+
+    messages.append({"role": "user", "content": content})
 
     resp = httpx.post(
         url,
@@ -100,12 +114,28 @@ def _call_gpt(api_key, model, system_prompt, user_message):
     return resp.json()["choices"][0]["message"]["content"] or ""
 
 
-def _call_claude(api_key, model, system_prompt, user_message):
+def _call_claude(api_key, model, system_prompt, user_message, images=None):
     url = f"{BASE_URL}/v1/messages"
+
+    if images:
+        content = []
+        for img in images:
+            content.append({
+                "type": "image",
+                "source": {
+                    "type":       "base64",
+                    "media_type": img["mime"],
+                    "data":       img["b64"],
+                },
+            })
+        content.append({"type": "text", "text": user_message})
+    else:
+        content = user_message
+
     body = {
-        "model":     model,
-        "messages":  [{"role": "user", "content": user_message}],
-        "max_tokens": 8192,
+        "model":       model,
+        "messages":    [{"role": "user", "content": content}],
+        "max_tokens":  8192,
         "temperature": 0.9,
     }
     if system_prompt.strip():
@@ -125,8 +155,9 @@ def _call_claude(api_key, model, system_prompt, user_message):
     return resp.json()["content"][0]["text"]
 
 
-def _call_gemini(api_key, model, system_prompt, user_message):
+def _call_gemini(api_key, model, system_prompt, user_message, images=None):
     from google import genai
+    from google.genai import types as _gtypes
     from google.genai.types import HttpOptions, GenerateContentConfig
     GEMINI_BASE_URL = "https://internal-apigw-kr.hmg-corp.io/hchat-in/api/v3?key="
     base = GEMINI_BASE_URL + api_key
@@ -137,7 +168,22 @@ def _call_gemini(api_key, model, system_prompt, user_message):
     config = GenerateContentConfig(temperature=0.9, max_output_tokens=8192)
     if system_prompt.strip():
         config.system_instruction = system_prompt
-    resp = client.models.generate_content(model=model, contents=user_message, config=config)
+
+    if images:
+        parts = []
+        for img in images:
+            parts.append(
+                _gtypes.Part.from_bytes(
+                    data=base64.b64decode(img["b64"]),
+                    mime_type=img["mime"],
+                )
+            )
+        parts.append(user_message)
+        contents = parts
+    else:
+        contents = user_message
+
+    resp = client.models.generate_content(model=model, contents=contents, config=config)
     return resp.text or ""
 
 

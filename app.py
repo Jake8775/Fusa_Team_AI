@@ -1,6 +1,5 @@
 """
 차종 게이트 일정관리 앱 — HMG 사내 게이트웨이 연동
-파일 업로드 → AI 추출 → 후보 관리 → Confluence 반영 → 타임라인 → JIRA 조회
 """
 
 import os
@@ -11,8 +10,9 @@ import calendar
 import io
 import json
 import subprocess
+import re
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 import pandas as pd
 import requests
@@ -43,6 +43,9 @@ AI_ENGINES = {
 CONFLUENCE_BASE    = "https://hmg.atlassian.net"
 CONFLUENCE_PAGE_ID = "604276516"
 
+JIRA_BASE    = "https://ade-jira.hmckmc.co.kr"
+JIRA_PROJECT = "VDPGTINSP"
+
 DATE_KEYS = ["submission_request", "practical_meeting", "preliminary_meeting", "final_meeting"]
 DATE_LABELS = {
     "submission_request":  "제출요청",
@@ -57,7 +60,6 @@ COLOR_MAP = {
     "final_meeting":       "#E67E22",
 }
 
-# 스펙 원문 그대로
 SAVE_LIMIT_MSG = (
     "저장 기능은 현재 제한됩니다.\n"
     "연결된 JIRA는 운영(Live) 서버로, 실제 데이터의 추가·수정·삭제 기능은 구현할 수 있으나 "
@@ -75,14 +77,6 @@ EXTRACT_PROMPT = (
     "문서: {text}"
 )
 
-JIRA_FIELD_KO = {
-    "summary": "제목", "status": "상태", "assignee": "담당자",
-    "issuetype": "유형", "priority": "우선순위", "description": "설명",
-    "reporter": "보고자", "created": "생성일", "updated": "수정일",
-    "labels": "레이블", "components": "컴포넌트",
-    "duedate": "마감일", "fixVersions": "수정버전",
-}
-
 
 # ── 유틸리티 ──────────────────────────────────────────────────────────────────
 def get_git_version() -> str:
@@ -91,7 +85,7 @@ def get_git_version() -> str:
         with open(os.path.join(root, "VERSION"), encoding="utf-8") as f:
             lines = f.read().strip().splitlines()
         major = int(lines[0])
-        base = int(lines[1]) if len(lines) > 1 else 0
+        base  = int(lines[1]) if len(lines) > 1 else 0
         r = subprocess.run(
             ["git", "rev-list", "--count", "HEAD"],
             capture_output=True, text=True, cwd=root,
@@ -103,7 +97,6 @@ def get_git_version() -> str:
 
 
 def read_txt_file(uploaded, session_key: str) -> str:
-    """TXT 파일에서 값 읽기. 세션에 캐시."""
     if uploaded is not None:
         try:
             uploaded.seek(0)
@@ -121,30 +114,26 @@ def read_txt_file(uploaded, session_key: str) -> str:
 
 
 def add_months(d: date, n: int) -> date:
-    """날짜에 n개월 추가"""
     m = d.month - 1 + n
     return d.replace(year=d.year + m // 12, month=m % 12 + 1, day=1)
 
 
 def detect_mime(raw: bytes) -> str:
-    if raw[:4] == b"\x89PNG":   return "image/png"
-    if raw[:2] == b"\xff\xd8":  return "image/jpeg"
-    if raw[:4] == b"GIF8":      return "image/gif"
+    if raw[:4] == b"\x89PNG":  return "image/png"
+    if raw[:2] == b"\xff\xd8": return "image/jpeg"
+    if raw[:4] == b"GIF8":     return "image/gif"
     return "image/webp"
 
 
 def parse_file(uploaded_file) -> str:
-    """업로드 파일 → 텍스트"""
     uploaded_file.seek(0)
     raw  = uploaded_file.read()
     name = uploaded_file.name.lower()
-
     if name.endswith((".xlsx", ".xls")):
         try:
             return pd.read_excel(io.BytesIO(raw)).to_string(index=False)
         except Exception as e:
             return f"[Excel 오류: {e}]"
-
     if name.endswith(".pdf"):
         if PYPDF2_OK:
             try:
@@ -153,12 +142,10 @@ def parse_file(uploaded_file) -> str:
             except Exception as e:
                 return f"[PDF 오류: {e}]"
         return "[PyPDF2 미설치]"
-
     if name.endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
         mime = detect_mime(raw)
         b64  = base64.b64encode(raw).decode("ascii")
         return f"[IMAGE|{mime}|{b64}]"
-
     for enc in ["utf-8-sig", "utf-8", "euc-kr", "cp949"]:
         try:
             return raw.decode(enc)
@@ -196,7 +183,6 @@ def candidates_to_html(candidates: list) -> str:
 
 
 def _atlassian_kwargs(email: str, token: str) -> dict:
-    """이메일 있으면 Basic Auth, 없으면 Bearer 토큰 (Data Center PAT)"""
     if email:
         return {"auth": HTTPBasicAuth(email, token)}
     return {"headers": {"Authorization": f"Bearer {token}"}}
@@ -204,7 +190,7 @@ def _atlassian_kwargs(email: str, token: str) -> dict:
 
 def confluence_update(email: str, token: str, html_body: str):
     page_url = f"{CONFLUENCE_BASE}/wiki/api/v2/pages/{CONFLUENCE_PAGE_ID}"
-    kw       = _atlassian_kwargs(email, token)
+    kw = _atlassian_kwargs(email, token)
     try:
         r = requests.get(page_url, params={"body-format": "storage"}, timeout=10, **kw)
         if r.status_code == 404:
@@ -215,9 +201,8 @@ def confluence_update(email: str, token: str, html_body: str):
         title   = data["title"]
     except requests.RequestException as e:
         return False, f"GET 실패: {e}"
-
     payload = {
-        "id": page_id, "status": "current", "title": title,
+        "id": CONFLUENCE_PAGE_ID, "status": "current", "title": title,
         "body": {"representation": "storage", "value": html_body},
         "version": {"number": version},
     }
@@ -230,13 +215,12 @@ def confluence_update(email: str, token: str, html_body: str):
         return False, f"PUT 실패: {e}"
 
 
-def jira_get_fields(email: str, token: str, jira_base: str) -> dict:
-    """JIRA 커스텀 필드명 매핑. {id: name}"""
+def jira_get_fields(email: str, token: str) -> dict:
     if st.session_state.get("jira_field_map"):
         return st.session_state.jira_field_map
     kw = _atlassian_kwargs(email, token)
     try:
-        r = requests.get(f"{jira_base.rstrip('/')}/rest/api/3/field", timeout=10, **kw)
+        r = requests.get(f"{JIRA_BASE}/rest/api/3/field", timeout=10, **kw)
         if r.ok:
             fmap = {f["id"]: f["name"] for f in r.json()}
             st.session_state.jira_field_map = fmap
@@ -246,9 +230,18 @@ def jira_get_fields(email: str, token: str, jira_base: str) -> dict:
     return {}
 
 
-def jira_search(email: str, token: str, jira_base: str, jql: str):
-    kw     = _atlassian_kwargs(email, token)
-    url    = f"{jira_base.rstrip('/')}/rest/api/3/search"
+def find_custom_field(field_map: dict, target: str):
+    for fid, fname in field_map.items():
+        if target in fname:
+            return fid
+    return None
+
+
+def jira_search(email: str, token: str, jql: str, my_only: bool = False):
+    kw  = _atlassian_kwargs(email, token)
+    url = f"{JIRA_BASE}/rest/api/3/search"
+    if my_only:
+        jql = f"({jql}) AND assignee = currentUser()"
     params = {"jql": jql, "maxResults": 50, "fields": "*all"}
     try:
         r = requests.get(url, params=params, timeout=15, **kw)
@@ -261,7 +254,6 @@ def jira_search(email: str, token: str, jira_base: str, jql: str):
 
 
 def field_val_str(v) -> str:
-    """JIRA 필드 값 → 표시 문자열"""
     if v is None:
         return ""
     if isinstance(v, dict):
@@ -273,22 +265,42 @@ def field_val_str(v) -> str:
     return str(v)
 
 
+def fmt_dt(s: str) -> str:
+    try:
+        return datetime.fromisoformat(s[:19]).strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return s or ""
+
+
+def cf_val(fields: dict, fmap: dict, *names) -> str:
+    """이름으로 커스텀 필드 값 조회 (복수 후보 순서대로)"""
+    for name in names:
+        fid = find_custom_field(fmap, name)
+        if fid:
+            v = field_val_str(fields.get(fid))
+            if v:
+                return v
+    return ""
+
+
 # ── 세션 상태 초기화 ─────────────────────────────────────────────────────────
 def _init():
     for k, v in {
         "candidates":     [],
         "relay_req":      None,
         "relay_res":      None,
-        "relay_meta":     None,
+        "relay_images":   [],
         "current_month":  date.today().replace(day=1),
         "jira_issues":    [],
         "jira_field_map": {},
-        "timeline_car":   None,   # 타임라인 클릭으로 선택된 차종
+        "selected_car":   None,
         "file_cache":     {},
-        # TXT 파일 캐시
+        "selected_file":  None,
         "api_key":        "",
         "cf_email":       "",
         "cf_token":       "",
+        "ai_engine":      "Gemini",
+        "ai_model":       "gemini-2.5-pro",
     }.items():
         if k not in st.session_state:
             st.session_state[k] = v
@@ -297,132 +309,259 @@ _init()
 
 
 # ── 페이지 설정 ──────────────────────────────────────────────────────────────
-st.set_page_config(page_title="차종 게이트 일정관리", page_icon="📅", layout="wide")
+st.set_page_config(
+    page_title="차종 게이트 일정관리",
+    page_icon="📅",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
+st.markdown("""
+<style>
+  [data-testid="stSidebar"] { display:none; }
+  .block-container { padding-top:0.6rem !important; }
+</style>
+""", unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 사이드바 — 3개 TXT 파일 입력
+# 설정 모달
 # ══════════════════════════════════════════════════════════════════════════════
-with st.sidebar:
-    st.header("⚙️ 설정")
-    st.caption(f"ver. {get_git_version()}")
+@st.dialog("settings", width="large")
+def settings_dialog():
+    st.subheader("JIRA / Confluence / H-CHAT 설정")
+    c1, c2, c3 = st.columns(3)
 
-    exe_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist", "HMG_Relay.exe")
-    if os.path.exists(exe_path):
-        with open(exe_path, "rb") as _f:
-            st.download_button(
-                "⬇️ HMG_Relay.exe 다운로드", _f,
-                file_name="HMG_Relay.exe", mime="application/octet-stream",
-                use_container_width=True,
-            )
+    with c1:
+        st.markdown("**JIRA**")
+        st.text_input("JIRA Base URL", value=JIRA_BASE, disabled=True)
+        st.text_input("Project Key",   value=JIRA_PROJECT, disabled=True)
+        f_tok = st.file_uploader("JIRA Token (.txt)", type=["txt"], key="dlg_jtok")
+        tok_from_file = read_txt_file(f_tok, "cf_token")
+        jt = st.text_input("JIRA Token",
+                           value=tok_from_file or st.session_state.get("cf_token", ""),
+                           type="password")
+
+    with c2:
+        st.markdown("**Confluence**")
+        st.text_input("Base URL", value=CONFLUENCE_BASE, disabled=True)
+        st.text_input("Space / Page", value=f"RND / {CONFLUENCE_PAGE_ID}", disabled=True)
+        st.info("Confluence Token = JIRA Token (동일 Atlassian 계정)")
+        em = st.text_input("이메일 (Cloud만 필요)",
+                           value=st.session_state.get("cf_email", ""),
+                           placeholder="user@hmg.com")
+
+    with c3:
+        st.markdown("**H-CHAT**")
+        f_api = st.file_uploader("H-CHAT API Key (.txt)", type=["txt"], key="dlg_api")
+        ak = read_txt_file(f_api, "api_key")
+        if ak:
+            st.success("API 키 로드됨")
+        eng = st.selectbox("AI 엔진", list(AI_ENGINES.keys()), key="dlg_eng",
+                           index=list(AI_ENGINES.keys()).index(
+                               st.session_state.get("ai_engine", "Gemini")))
+        mdl = st.selectbox("모델", AI_ENGINES[eng], key="dlg_mdl")
 
     st.divider()
-    st.subheader("🔑 인증 파일 (TXT)")
-    st.caption("각 항목을 .txt 파일로 드래그하세요")
+    if st.button("설정 저장", type="primary", use_container_width=True):
+        st.session_state.cf_token       = jt or tok_from_file
+        st.session_state.cf_email       = em
+        st.session_state.ai_engine      = eng
+        st.session_state.ai_model       = mdl
+        st.session_state.jira_field_map = {}
+        st.success("저장됨")
+        st.rerun()
 
-    f_api   = st.file_uploader("① HMG AI API 키", type=["txt"], key="up_api")
-    f_token = st.file_uploader("② Atlassian API 토큰", type=["txt"], key="up_token")
 
-    api_key  = read_txt_file(f_api,   "api_key")
-    cf_token = read_txt_file(f_token, "cf_token")
+# ══════════════════════════════════════════════════════════════════════════════
+# JIRA 상세 모달
+# ══════════════════════════════════════════════════════════════════════════════
+@st.dialog("JIRA detail", width="large")
+def jira_detail_dialog(issue: dict):
+    f    = issue.get("fields", {}) or {}
+    fmap = st.session_state.get("jira_field_map", {})
+    key  = issue.get("key", "")
 
-    cf_email = st.text_input(
-        "③ Atlassian 이메일",
-        value=st.session_state.get("cf_email", ""),
-        placeholder="user@hmg.com",
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f"**JIRA Key:** `{key}`")
+        st.markdown(f"**프로젝트:** {field_val_str(f.get('project'))}")
+        st.markdown(f"**차종:** {cf_val(f, fmap, 'Vehicle', 'Car', 'car')}")
+        st.markdown(f"**단계:** {cf_val(f, fmap, 'Stage', 'Phase', 'step')}")
+        st.markdown(f"**점검유형:** {cf_val(f, fmap, 'Inspection', 'Check', 'Type')}")
+        st.markdown(f"**시스템:** {cf_val(f, fmap, 'System', 'system')}")
+    with c2:
+        st.markdown(f"**Summary:** {f.get('summary', '')}")
+        st.markdown(f"**Status:** {field_val_str(f.get('status'))}")
+        st.markdown(f"**Priority:** {field_val_str(f.get('priority'))}")
+        st.markdown(f"**Assignee:** {field_val_str(f.get('assignee'))}")
+        st.markdown(f"**최근 업데이트:** {fmt_dt(f.get('updated', ''))}")
+        st.markdown(f"**Issue Type:** {field_val_str(f.get('issuetype'))}")
+
+    st.divider()
+    c3, c4 = st.columns(2)
+    with c3:
+        st.text_input("점검결과", value=cf_val(f, fmap, "Result", "Outcome"),
+                      key=f"res_{key}")
+    with c4:
+        st.text_input("URL", value=cf_val(f, fmap, "URL", "Link"), key=f"url_{key}")
+
+    st.markdown("**첨부 / 결과 파일**")
+    st.file_uploader("파일을 드래그하세요", key=f"att_{key}",
+                     accept_multiple_files=True, label_visibility="collapsed")
+    st.text_area("결과 메모", key=f"memo_{key}", height=80)
+
+    st.divider()
+    b1, b2 = st.columns([3, 1])
+    with b1:
+        st.warning(SAVE_LIMIT_MSG)
+    with b2:
+        st.button("닫기", key=f"close_{key}", use_container_width=True)
+        st.button("JIRA 업데이트", disabled=True, key=f"upd_{key}", use_container_width=True)
+
+
+# ── 런타임 인증값 ──────────────────────────────────────────────────────────────
+api_key  = st.session_state.get("api_key", "")
+cf_token = st.session_state.get("cf_token", "")
+cf_email = st.session_state.get("cf_email", "")
+engine   = st.session_state.get("ai_engine", "Gemini")
+model    = st.session_state.get("ai_model", "gemini-2.5-pro")
+has_ai   = bool(api_key)
+has_cf   = bool(cf_token)   # JIRA/CF URL은 코드에 고정
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 헤더
+# ══════════════════════════════════════════════════════════════════════════════
+hc = st.columns([4, 1, 1, 1, 0.6])
+with hc[0]:
+    st.markdown(
+        f"<h2 style='margin:0;padding:2px 0'>FS 차종 게이트 일정 관리 App"
+        f"<span style='font-size:13px;color:#888;font-weight:normal'> &nbsp;ver.{get_git_version()}</span></h2>",
+        unsafe_allow_html=True,
     )
-    st.session_state.cf_email = cf_email
-
-    loaded = sum(bool(x) for x in [api_key, cf_token])
-    st.progress(loaded / 2, text=f"{loaded}/2 필수 파일 로드")
-
-    st.divider()
-    st.subheader("🌐 연결 설정")
-    jira_base = st.text_input(
-        "JIRA Base URL",
-        value=st.session_state.get("jira_base", ""),
-        placeholder="https://hmg.atlassian.net",
+with hc[1]:
+    dot = "🟢" if has_cf else "🔴"
+    st.markdown(
+        f"<div style='text-align:center;padding-top:10px;font-size:13px'>"
+        f"{dot} Confluence</div>",
+        unsafe_allow_html=True,
     )
-    if jira_base:
-        st.session_state.jira_base = jira_base
-    jira_base = st.session_state.get("jira_base", "")
+with hc[2]:
+    dot = "🟢" if has_cf else "🔴"
+    st.markdown(
+        f"<div style='text-align:center;padding-top:10px;font-size:13px'>"
+        f"{dot} ADE Jira</div>",
+        unsafe_allow_html=True,
+    )
+with hc[3]:
+    dot = "🟢" if has_ai else "🔴"
+    st.markdown(
+        f"<div style='text-align:center;padding-top:10px;font-size:13px'>"
+        f"{dot} AI {'대기' if has_ai else '미설정'}</div>",
+        unsafe_allow_html=True,
+    )
+with hc[4]:
+    if st.button("⚙️", help="설정 (JIRA 토큰 · AI 키)", use_container_width=True):
+        settings_dialog()
 
-    st.divider()
-    st.subheader("🤖 AI 엔진")
-    engine = st.selectbox("엔진", list(AI_ENGINES.keys()), index=0)
-    model  = st.selectbox("모델", AI_ENGINES[engine])
-
-
-# ── 연결 상태 플래그 ──────────────────────────────────────────────────────────
-has_ai = bool(api_key)
-has_cf = bool(cf_token and jira_base)   # 이메일은 선택 (Cloud만 필요)
-
-
-# ── 헤더 ─────────────────────────────────────────────────────────────────────
-h1, h2, h3 = st.columns([4, 1, 1])
-with h1:
-    st.title("📅 차종 게이트 일정관리")
-with h2:
-    st.metric("Confluence", "🟢 연결됨" if has_cf else "🔴 미설정")
-with h3:
-    st.metric("JIRA",       "🟢 연결됨" if has_cf else "🔴 미설정")
+st.divider()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 메인 레이아웃
+# 메인: [입력 33%] | [타임라인+하단 67%]
 # ══════════════════════════════════════════════════════════════════════════════
-left_col, right_col = st.columns([45, 55])
+left_col, right_col = st.columns([33, 67])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 왼쪽 패널
+# 왼쪽 — 입력
 # ─────────────────────────────────────────────────────────────────────────────
 with left_col:
-    st.subheader("📂 파일 업로드")
+    # ── 인증 파일 (항상 표시) ────────────────────────────────────────────────
+    ak_col, tok_col = st.columns(2)
+    with ak_col:
+        f_api_main = st.file_uploader("① H-CHAT API 키 (.txt)", type=["txt"], key="main_api")
+        read_txt_file(f_api_main, "api_key")
+        api_key = st.session_state.get("api_key", "")   # 갱신
+        has_ai  = bool(api_key)
+    with tok_col:
+        f_tok_main = st.file_uploader("② JIRA/CF 토큰 (.txt)", type=["txt"], key="main_tok")
+        read_txt_file(f_tok_main, "cf_token")
+        cf_token = st.session_state.get("cf_token", "")  # 갱신
+        has_cf   = bool(cf_token)
+
+    st.divider()
+    st.markdown("#### 입력")
+    st.caption("입력자료를 선택하면 해당 입력자료에 대응되는 일정 추출 후보가 표시됩니다.")
 
     uploaded_files = st.file_uploader(
-        "파일 선택 (복수 가능)",
+        "파일 또는 텍스트를 여기로 드래그하세요",
         type=["xlsx", "xls", "pdf", "jpg", "jpeg", "png", "gif", "webp", "txt", "msg"],
         accept_multiple_files=True,
-        label_visibility="collapsed",
+        help="Email / PDF / JPG / PNG / Text / Excel 지원",
     )
-
-    # 파일 캐시 갱신
     if uploaded_files:
         cur_names = {uf.name for uf in uploaded_files}
         for name in list(st.session_state.file_cache.keys()):
-            if name not in cur_names:
+            if name not in cur_names and not name.startswith("_txt_"):
                 del st.session_state.file_cache[name]
         for uf in uploaded_files:
             if uf.name not in st.session_state.file_cache:
                 st.session_state.file_cache[uf.name] = parse_file(uf)
-        st.caption(f"{len(st.session_state.file_cache)}개 파일 로드됨")
-        for fname in st.session_state.file_cache:
-            st.text(f"  • {fname}")
     else:
-        st.session_state.file_cache = {}
+        for k in [k for k in st.session_state.file_cache if not k.startswith("_txt_")]:
+            del st.session_state.file_cache[k]
 
-    extract_btn = st.button(
-        "🤖 AI 일정 추출", type="primary", use_container_width=True,
-        disabled=not (st.session_state.file_cache and has_ai),
-    )
+    with st.expander("텍스트 붙여넣기 (이메일/메모)"):
+        direct_text = st.text_area("내용", height=90, label_visibility="collapsed",
+                                   placeholder="이메일 본문, 회의록 등...",
+                                   key="direct_text_input")
+        if st.button("추가", use_container_width=True):
+            if direct_text.strip():
+                st.session_state.file_cache[f"_txt_{uuid.uuid4().hex[:6]}"] = direct_text.strip()
+                st.rerun()
 
-    if extract_btn:
-        combined = "\n\n".join(
-            f"[{n}]\n{t}" for n, t in st.session_state.file_cache.items()
-        )
+    # 입력자료 목록 (sourceList)
+    all_files = list(st.session_state.file_cache.keys())
+    if all_files:
+        st.markdown("**입력자료 목록**")
+        for fname in all_files:
+            label = fname if not fname.startswith("_txt_") else f"텍스트({fname[-6:]})"
+            fc1, fc2 = st.columns([7, 1])
+            btn_type = "primary" if st.session_state.selected_file == fname else "secondary"
+            if fc1.button(label[:38], key=f"src_{fname}",
+                          use_container_width=True, type=btn_type):
+                st.session_state.selected_file = fname
+                st.rerun()
+            if fc2.button("x", key=f"del_{fname}"):
+                del st.session_state.file_cache[fname]
+                if st.session_state.selected_file == fname:
+                    st.session_state.selected_file = None
+                st.rerun()
+
+    if st.button("AI 일정 추출", type="primary", use_container_width=True,
+                 disabled=not (st.session_state.file_cache and has_ai)):
+        _img_re = re.compile(r"^\[IMAGE\|([^|]+)\|(.+)\]$", re.DOTALL)
+        _images, _texts = [], []
+        for _n, _t in st.session_state.file_cache.items():
+            _m = _img_re.match(_t.strip())
+            if _m:
+                _images.append({"mime": _m.group(1), "b64": _m.group(2)})
+            else:
+                _texts.append(f"[{_n}]\n{_t}")
+        combined = "\n\n".join(_texts)
         st.session_state.relay_req = {
             "request_id":    str(uuid.uuid4()),
             "engine":        engine,
             "api_key":       api_key,
             "model":         model,
             "system_prompt": "당신은 일정 정보를 추출하는 전문가입니다. JSON 배열로만 답변하세요.",
-            "user_message":  EXTRACT_PROMPT.format(text=combined[:8000]),
+            "user_message":  EXTRACT_PROMPT.format(text=combined[:12000]),
+            "images":        _images,
         }
-        st.session_state.relay_meta = {"files": list(st.session_state.file_cache.keys())}
-        st.session_state.relay_res  = None
+        st.session_state.relay_images = _images
+        st.session_state.relay_res = None
 
-    # 릴레이 컴포넌트 (비동기)
     req = st.session_state.relay_req
     if req:
         comp = relay_call(**req)
@@ -430,10 +569,8 @@ with left_col:
             st.session_state.relay_res = comp
             st.session_state.relay_req = None
             st.rerun()
-
     if st.session_state.relay_req:
-        st.info("🔄 AI 추출 중...")
-
+        st.info("AI 추출 중...")
     if st.session_state.relay_res:
         res = st.session_state.relay_res
         st.session_state.relay_res = None
@@ -443,19 +580,18 @@ with left_col:
             extracted = parse_ai_response(res["result"])
             if extracted:
                 existing = {(c["car_type"], c["event"]) for c in st.session_state.candidates}
-                added = 0
                 for nc in extracted:
                     nc.setdefault("confirmed", False)
                     nc.setdefault("source", "")
                     if (nc.get("car_type", ""), nc.get("event", "")) not in existing:
                         st.session_state.candidates.append(nc)
-                        added += 1
-                st.success(f"{added}개 일정 추출 (총 {len(st.session_state.candidates)}건)")
+                        existing.add((nc.get("car_type", ""), nc.get("event", "")))
+                st.success(f"{len(extracted)}개 추출 완료")
             else:
                 st.warning("일정을 찾지 못했습니다.")
 
     st.divider()
-    st.subheader("📋 일정 후보 편집")
+    st.markdown("**선택된 입력자료별 일정 추출 후보**")
 
     if st.session_state.candidates:
         rows = [
@@ -472,9 +608,8 @@ with left_col:
             for c in st.session_state.candidates
         ]
         edited = st.data_editor(
-            pd.DataFrame(rows),
-            use_container_width=True,
-            num_rows="dynamic",
+            pd.DataFrame(rows), use_container_width=True,
+            num_rows="dynamic", height=190,
             column_config={
                 "확정":   st.column_config.CheckboxColumn("확정"),
                 "이벤트": st.column_config.SelectboxColumn(
@@ -483,8 +618,6 @@ with left_col:
             },
             key="candidates_editor",
         )
-
-        # 편집 반영
         st.session_state.candidates = [
             {
                 "confirmed": bool(row.get("확정", False)),
@@ -501,131 +634,138 @@ with left_col:
             }
             for _, row in edited.iterrows()
         ]
-
         confirmed_count = sum(1 for c in st.session_state.candidates if c.get("confirmed"))
 
-        ca, cb = st.columns(2)
-        with ca:
-            if st.button("🗑️ 전체 초기화", use_container_width=True):
-                st.session_state.candidates = []
-                st.session_state.file_cache = {}
+        bc1, bc2 = st.columns(2)
+        with bc1:
+            if st.button("초기화", use_container_width=True):
+                st.session_state.candidates  = []
+                st.session_state.file_cache  = {}
+                st.session_state.selected_file = None
                 st.rerun()
-        with cb:
-            cf_btn = st.button(
-                f"☁️ Confluence 반영 ({confirmed_count}건)",
+        with bc2:
+            if st.button(
+                f"Confluence 반영 ({confirmed_count}건)",
                 type="primary", use_container_width=True,
                 disabled=not (confirmed_count and has_cf),
-            )
-
-        if cf_btn:
-            html = candidates_to_html(st.session_state.candidates)
-            ok, msg = confluence_update(cf_email, cf_token, html)
-            (st.success if ok else st.error)(msg)
+                key="confirmBtn",
+            ):
+                ok, msg = confluence_update(
+                    cf_email, cf_token,
+                    candidates_to_html(st.session_state.candidates),
+                )
+                (st.success if ok else st.error)(msg)
     else:
         st.caption("파일을 업로드하고 AI 추출을 실행하세요.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 오른쪽 패널 — 탭
+# 오른쪽 — 타임라인 + 하단
 # ─────────────────────────────────────────────────────────────────────────────
 with right_col:
-    tab1, tab2, tab3 = st.tabs(["📊 타임라인", "📆 월별 이벤트", "🎫 JIRA 티켓"])
+    cur_m  = st.session_state.current_month
+    next_m = add_months(cur_m, 1)
 
-    # ── Tab1: 타임라인 (2개월 범위) ──────────────────────────────────────────
-    with tab1:
-        nav_l, nav_m, nav_r = st.columns([1, 4, 1])
-        cur_m = st.session_state.current_month
+    # 네비게이션
+    nav = st.columns([1, 7, 1, 1])
+    with nav[0]:
+        if st.button("◀", use_container_width=True, key="prevMonthBtn"):
+            st.session_state.current_month = add_months(cur_m, -1)
+            st.rerun()
+    with nav[1]:
+        st.markdown(
+            "<h4 style='text-align:center;margin:4px 0'>"
+            f"차종 게이트 이벤트 타임라인 "
+            f"— {cur_m.strftime('%Y년 %m월')} ~ {next_m.strftime('%m월')}"
+            "</h4>"
+            "<p style='text-align:center;margin:0;font-size:12px;color:#888'>"
+            "차종 클릭 시, 우측의 Jira 조회가 연동됩니다</p>",
+            unsafe_allow_html=True,
+        )
+    with nav[2]:
+        if st.button("▶", use_container_width=True, key="nextMonthBtn"):
+            st.session_state.current_month = add_months(cur_m, 1)
+            st.rerun()
+    with nav[3]:
+        if st.button("🔄", help="새로고침", use_container_width=True, key="refreshBtn"):
+            st.session_state.jira_field_map = {}
+            st.rerun()
 
-        with nav_l:
-            if st.button("◀", use_container_width=True, key="prev_m"):
-                st.session_state.current_month = add_months(cur_m, -1)
-                st.rerun()
-        with nav_m:
-            st.markdown(
-                f"<h3 style='text-align:center;margin:4px 0'>"
-                f"◀ {cur_m.strftime('%Y-%m')} ▶</h3>",
-                unsafe_allow_html=True,
-            )
-        with nav_r:
-            if st.button("▶", use_container_width=True, key="next_m"):
-                st.session_state.current_month = add_months(cur_m, 1)
-                st.rerun()
+    # 빅 간트 (차종별 1라인)
+    if not PLOTLY_OK:
+        st.warning("`pip install plotly` 필요")
+    elif not st.session_state.candidates:
+        st.info("파일을 업로드하고 AI 추출을 실행하면 타임라인이 표시됩니다.")
+    else:
+        _, last2  = calendar.monthrange(next_m.year, next_m.month)
+        range_end = next_m.replace(day=last2)
 
-        if not PLOTLY_OK:
-            st.warning("`pip install plotly`를 실행하세요.")
-        elif not st.session_state.candidates:
-            st.info("일정 후보를 추가하면 타임라인이 표시됩니다.")
-        else:
-            # 2개월 범위
-            next_m     = add_months(cur_m, 1)
-            _, last1   = calendar.monthrange(cur_m.year, cur_m.month)
-            _, last2   = calendar.monthrange(next_m.year, next_m.month)
-            range_end  = next_m.replace(day=last2)
-
-            tl_rows = []
-            for c in st.session_state.candidates:
-                for dk in DATE_KEYS:
-                    dval = (c.get("dates") or {}).get(dk)
-                    if not dval:
-                        continue
-                    try:
-                        dt = datetime.strptime(dval, "%Y-%m-%d").date()
-                    except (ValueError, TypeError):
-                        continue
-                    # 2개월 범위 필터
-                    if cur_m <= dt <= range_end:
-                        tl_rows.append({
-                            "차종_이벤트": f"{c.get('car_type','')} {c.get('event','')}",
-                            "일정구분":  DATE_LABELS[dk],
-                            "시작": dval,
-                            "종료": dval,
-                        })
-
-            if tl_rows:
-                df_tl = pd.DataFrame(tl_rows)
-                df_tl["시작"] = pd.to_datetime(df_tl["시작"])
-                df_tl["종료"] = pd.to_datetime(df_tl["종료"]) + pd.Timedelta(days=1)
-                color_map = {v: COLOR_MAP[k] for k, v in DATE_LABELS.items()}
-
-                fig = px.timeline(
-                    df_tl, x_start="시작", x_end="종료",
-                    y="차종_이벤트", color="일정구분",
-                    color_discrete_map=color_map,
-                    title=f"{cur_m.strftime('%Y-%m')} ~ {next_m.strftime('%Y-%m')} 게이트 일정",
-                )
-                fig.update_layout(height=420, margin=dict(l=10, r=10, t=40, b=10))
-                fig.update_xaxes(
-                    range=[str(cur_m), str(range_end)],
-                    tickformat="%m/%d",
-                )
-
-                # 차종 클릭 → JIRA 연동 (Streamlit >= 1.36)
-                st.caption("💡 막대 클릭 → JIRA 탭 자동 조회")
+        tl_rows = []
+        for c in st.session_state.candidates:
+            for dk in DATE_KEYS:
+                dval = (c.get("dates") or {}).get(dk)
+                if not dval:
+                    continue
                 try:
-                    event = st.plotly_chart(
-                        fig, use_container_width=True,
-                        on_select="rerun", key="timeline_chart",
-                    )
-                    if (event and hasattr(event, "selection")
-                            and event.selection and event.selection.points):
-                        pt    = event.selection.points[0]
-                        y_val = str(pt.get("y") or pt.get("label") or "")
-                        car   = y_val.split()[0] if y_val else ""
-                        if car:
-                            st.session_state.timeline_car = car
-                            st.toast(f"'{car}' 선택 → JIRA 탭 조회 중...")
-                except TypeError:
-                    # on_select 미지원 버전
-                    st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info(f"{cur_m.strftime('%Y-%m')} ~ {next_m.strftime('%Y-%m')} 기간에 일정이 없습니다.")
+                    dt = datetime.strptime(dval, "%Y-%m-%d").date()
+                except (ValueError, TypeError):
+                    continue
+                if cur_m <= dt <= range_end:
+                    tl_rows.append({
+                        "차종":    c.get("car_type", ""),
+                        "이벤트":  c.get("event", ""),
+                        "담당자":  c.get("owner", ""),
+                        "일정구분": DATE_LABELS[dk],
+                        "시작":    dval,
+                        "종료":    dval,
+                    })
 
-    # ── Tab2: 월별 이벤트 목록 ───────────────────────────────────────────────
-    with tab2:
-        cur_m = st.session_state.current_month
-        next_m = add_months(cur_m, 1)
-        st.caption(f"{cur_m.strftime('%Y-%m')} ~ {next_m.strftime('%Y-%m')} 이벤트 목록")
+        if tl_rows:
+            df_tl = pd.DataFrame(tl_rows)
+            df_tl["시작"] = pd.to_datetime(df_tl["시작"])
+            df_tl["종료"] = pd.to_datetime(df_tl["종료"]) + pd.Timedelta(days=1)
+            color_map = {v: COLOR_MAP[k] for k, v in DATE_LABELS.items()}
 
+            fig = px.timeline(
+                df_tl, x_start="시작", x_end="종료",
+                y="차종", color="일정구분",
+                hover_data={"이벤트": True, "담당자": True},
+                color_discrete_map=color_map,
+            )
+            fig.update_yaxes(autorange="reversed")
+            fig.update_xaxes(
+                range=[str(cur_m), str(range_end)],
+                tickformat="%m/%d", dtick="D3",
+            )
+            n_cars = len({r["차종"] for r in tl_rows})
+            fig.update_layout(
+                height=max(200, n_cars * 55 + 100),
+                margin=dict(l=10, r=10, t=10, b=10),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            )
+            try:
+                event = st.plotly_chart(
+                    fig, use_container_width=True,
+                    on_select="rerun", key="timelineRows",
+                )
+                if (event and hasattr(event, "selection")
+                        and event.selection and event.selection.points):
+                    car = str(event.selection.points[0].get("y") or "").strip()
+                    if car:
+                        st.session_state.selected_car = car
+                        st.toast(f"'{car}' 선택 — JIRA 조회 중...")
+            except TypeError:
+                st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info(f"{cur_m.strftime('%Y-%m')} ~ {next_m.strftime('%Y-%m')} 범위에 일정이 없습니다.")
+
+    st.divider()
+
+    # 하단: [월별이벤트 30%] | [JIRA 70%]
+    ev_col, jira_col = st.columns([30, 70])
+
+    with ev_col:
+        st.markdown(f"**월별 이벤트 조회 — {cur_m.year}년 {cur_m.month}월**")
         ev_rows = []
         for c in st.session_state.candidates:
             for dk in DATE_KEYS:
@@ -643,142 +783,120 @@ with right_col:
                         "차종":   c.get("car_type", ""),
                         "이벤트": c.get("event", ""),
                         "구분":   DATE_LABELS[dk],
-                        "담당자": c.get("owner", ""),
-                        "확정":   "✅" if c.get("confirmed") else "⬜",
+                        "담당":   c.get("owner", ""),
+                        "확정":   "O" if c.get("confirmed") else "-",
                     })
-
         if ev_rows:
             st.dataframe(
                 pd.DataFrame(ev_rows).sort_values("날짜").reset_index(drop=True),
-                use_container_width=True, hide_index=True,
+                use_container_width=True, hide_index=True, height=240,
             )
         else:
-            st.info("해당 기간에 이벤트가 없습니다.")
+            st.caption("이 기간에 이벤트가 없습니다.")
 
-    # ── Tab3: JIRA 티켓 ──────────────────────────────────────────────────────
-    with tab3:
-        st.subheader("JIRA 티켓 조회")
+    with jira_col:
+        car_types = sorted({c["car_type"] for c in st.session_state.candidates if c.get("car_type")})
+        car_opts  = ["전체"] + car_types
 
-        # 차종 목록 (candidates에서 추출)
-        car_types = sorted({
-            c["car_type"] for c in st.session_state.candidates
-            if c.get("car_type")
-        })
-        car_options = ["전체"] + car_types
+        auto_car = st.session_state.get("selected_car")
+        default_idx = car_opts.index(auto_car) if auto_car and auto_car in car_types else 0
 
-        # 타임라인 클릭으로 자동 선택된 차종
-        auto_car = st.session_state.pop("timeline_car", None) if "timeline_car" in st.session_state else None
+        st.markdown("**JIRA 티켓**")
+        st.caption("특정 차종을 선택하면 관련 Jira가 조회됩니다.")
 
-        jc1, jc2 = st.columns([3, 1])
-        with jc1:
-            default_idx = car_options.index(auto_car) if auto_car and auto_car in car_options else 0
+        jc = st.columns([4, 1, 1])
+        with jc[0]:
             selected_car = st.selectbox(
-                "차종 선택",
-                car_options,
-                index=default_idx,
+                "Jira 조회 선택 차종",
+                car_opts, index=default_idx,
                 label_visibility="collapsed",
             )
-        with jc2:
-            jira_btn = st.button("🔍 조회", type="primary", use_container_width=True)
+        with jc[1]:
+            my_only = st.toggle("내 티켓", key="myTicketsOnly")
+        with jc[2]:
+            jira_btn = st.button("조회", type="primary", use_container_width=True)
 
-        # 타임라인 클릭 시 자동 조회
-        auto_run = bool(auto_car and auto_car in car_options and has_cf)
+        auto_run = bool(auto_car and auto_car in car_types and has_cf)
+        if auto_run:
+            st.session_state.selected_car = None
+
         if jira_btn or auto_run:
             if not has_cf:
-                st.warning("사이드바에서 인증 파일(이메일·토큰)과 Base URL을 설정하세요.")
+                st.warning("설정에서 JIRA URL과 토큰을 입력하세요.")
             else:
-                jql = "project=ADE ORDER BY updated DESC"
+                jql = f"project={JIRA_PROJECT} ORDER BY updated DESC"
                 if selected_car != "전체":
-                    jql = f'project=ADE AND text~"{selected_car}" ORDER BY updated DESC'
+                    jql = f'project={JIRA_PROJECT} AND text~"{selected_car}" ORDER BY updated DESC'
                 with st.spinner("JIRA 조회 중..."):
-                    # 필드명 사전 먼저 로드
-                    field_map = jira_get_fields(cf_email, cf_token, jira_base)
-                    issues, err = jira_search(cf_email, cf_token, jira_base, jql)
+                    fmap = jira_get_fields(cf_email, cf_token)
+                    issues, err = jira_search(cf_email, cf_token, jql, my_only)
                 st.session_state.jira_issues = issues
                 if err:
                     st.error(err)
-                elif issues:
-                    st.success(f"{len(issues)}건 조회됨")
-                    if auto_run:
-                        st.info("JIRA 탭을 클릭하여 결과를 확인하세요.")
-                else:
+                elif not issues:
                     st.info("검색 결과가 없습니다.")
+                else:
+                    st.success(f"{len(issues)}건")
 
         if st.session_state.jira_issues:
-            field_map = st.session_state.get("jira_field_map", {})
+            fmap = st.session_state.get("jira_field_map", {})
 
-            # 요약 테이블
-            summary_rows = []
+            # 스펙 컬럼: Key | 단계 | 점검유형 | 시스템 | 상태 | 담당자 | 최근업데이트
+            grid_rows = []
             for issue in st.session_state.jira_issues:
-                f = issue.get("fields", {})
-                summary_rows.append({
-                    "Key":    issue.get("key", ""),
-                    "제목":   f.get("summary", ""),
-                    "상태":   field_val_str(f.get("status")),
-                    "담당자": field_val_str(f.get("assignee")),
-                    "유형":   field_val_str(f.get("issuetype")),
+                f = issue.get("fields", {}) or {}
+                grid_rows.append({
+                    "Key":      issue.get("key", ""),
+                    "단계":     cf_val(f, fmap, "Stage", "Phase"),
+                    "점검유형": cf_val(f, fmap, "Inspection", "Check"),
+                    "시스템":   cf_val(f, fmap, "System"),
+                    "상태":     field_val_str(f.get("status")),
+                    "담당자":   field_val_str(f.get("assignee")),
+                    "최근업데이트": fmt_dt(f.get("updated", "")),
                 })
-            st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
 
-            # 티켓 상세
-            st.caption("▼ 티켓 상세 (클릭하여 펼치기)")
-            for issue in st.session_state.jira_issues:
-                f   = issue.get("fields", {}) or {}
-                key = issue.get("key", "")
-
-                with st.expander(f"{key}: {f.get('summary', '')}"):
-                    # 표준 필드
-                    std_labels = {
-                        "status": "상태", "issuetype": "유형", "priority": "우선순위",
-                        "assignee": "담당자", "reporter": "보고자",
-                        "created": "생성일", "updated": "수정일", "duedate": "마감일",
-                    }
-                    sc1, sc2 = st.columns(2)
-                    for i, (fid, label) in enumerate(std_labels.items()):
-                        val = field_val_str(f.get(fid))
-                        if val:
-                            (sc1 if i % 2 == 0 else sc2).markdown(f"**{label}:** {val}")
-
-                    # 커스텀 필드 (단계, 점검유형, 시스템 등)
-                    custom_items = []
-                    for fid, fval in f.items():
-                        if not fid.startswith("customfield_") or fval is None:
-                            continue
-                        fname = field_map.get(fid, fid)
-                        vstr  = field_val_str(fval)
-                        if vstr:
-                            custom_items.append((fname, vstr))
-
-                    if custom_items:
-                        st.markdown("---")
-                        st.markdown("**커스텀 필드**")
-                        cc1, cc2 = st.columns(2)
-                        for i, (fname, vstr) in enumerate(custom_items):
-                            (cc1 if i % 2 == 0 else cc2).markdown(f"**{fname}:** {vstr}")
-
-                    # 설명
-                    desc = f.get("description")
-                    if desc:
-                        st.markdown("---")
-                        st.markdown("**설명**")
-                        desc_text = desc if isinstance(desc, str) else json.dumps(desc, ensure_ascii=False)
-                        st.text(desc_text[:800])
-
-                    st.markdown("---")
-                    # 파일 첨부 — 드롭 허용, 저장만 disable
-                    st.markdown("**📎 Attachment**")
-                    attached = st.file_uploader(
-                        "파일을 드래그하세요",
-                        key=f"attach_{key}",
-                        accept_multiple_files=True,
+            st.caption("행을 클릭하면 상세보기가 열립니다.")
+            try:
+                sel = st.dataframe(
+                    pd.DataFrame(grid_rows),
+                    use_container_width=True, hide_index=True, height=230,
+                    on_select="rerun", selection_mode="single-row",
+                    key="jiraGridBody",
+                )
+                if sel.selection.rows:
+                    jira_detail_dialog(
+                        st.session_state.jira_issues[sel.selection.rows[0]]
                     )
-                    st.button(
-                        "저장",
-                        key=f"save_{key}",
-                        disabled=True,
-                        use_container_width=False,
-                    )
-                    # 스펙 원문 제한 메시지
-                    st.warning(f"⚠ 저장 기능 제한 안내\n\n{SAVE_LIMIT_MSG}")
+            except (TypeError, AttributeError):
+                st.dataframe(pd.DataFrame(grid_rows),
+                             use_container_width=True, hide_index=True, height=200)
+                for idx, issue in enumerate(st.session_state.jira_issues[:10]):
+                    if st.button(f"{issue.get('key','')} 상세", key=f"db_{idx}"):
+                        jira_detail_dialog(issue)
         else:
             st.caption("차종을 선택하고 조회 버튼을 클릭하세요.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Status Bar
+# ══════════════════════════════════════════════════════════════════════════════
+st.divider()
+sb = st.columns([2, 2, 2, 2, 4, 1.5])
+with sb[0]:
+    st.caption(f"{'[CF]' if has_cf else '[CF]'} Confluence {'연결됨' if has_cf else '미설정'}")
+with sb[1]:
+    st.caption(f"JIRA {'연결됨' if has_cf else '미설정'}")
+with sb[2]:
+    st.caption(f"AI {'대기' if has_ai else '미설정'}")
+with sb[3]:
+    pending = sum(1 for c in st.session_state.candidates if not c.get("confirmed"))
+    st.caption(f"미반영 {pending}건")
+with sb[4]:
+    msg = (
+        f"후보 {len(st.session_state.candidates)}건 | JIRA {len(st.session_state.jira_issues)}건"
+        if st.session_state.candidates or st.session_state.jira_issues
+        else "준비 완료 — 파일을 드래그하거나 차종을 선택하세요."
+    )
+    st.caption(msg)
+with sb[5]:
+    st.caption(datetime.now().strftime("%H:%M:%S"))

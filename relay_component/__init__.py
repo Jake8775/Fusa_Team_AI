@@ -8,11 +8,12 @@ _component_func = components.declare_component(
 
 
 def relay_call(request_id: str, engine: str, api_key: str, model: str,
-               system_prompt: str, user_message: str):
+               system_prompt: str, user_message: str, images=None):
     """
     브라우저 JS를 통해 localhost:8765 릴레이 EXE에 API 요청을 보내고
     결과를 반환한다. 비동기 — 첫 렌더에서 None, 완료 후 rerun 시 결과 반환.
 
+    images: [{mime: str, b64: str}] 이미지 리스트 (멀티모달)
     반환값: {"request_id": str, "result": str|None, "elapsed": float, "error": str|None}
     """
     return _component_func(
@@ -22,6 +23,7 @@ def relay_call(request_id: str, engine: str, api_key: str, model: str,
         model=model,
         system_prompt=system_prompt,
         user_message=user_message,
+        images=images or [],
         default=None,
         key="relay_main",
     )
