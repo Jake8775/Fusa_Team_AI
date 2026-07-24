@@ -321,7 +321,7 @@ st.set_page_config(
 st.markdown("""
 <style>
   [data-testid="stSidebar"] { display:none; }
-  .block-container { padding-top:0.6rem !important; }
+  .block-container { padding-top:3rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -437,40 +437,20 @@ has_cf     = bool(cf_token)   # Confluence (hmg.atlassian.net)
 # ══════════════════════════════════════════════════════════════════════════════
 # 헤더
 # ══════════════════════════════════════════════════════════════════════════════
-hc = st.columns([5, 1, 1, 1, 0.7])
-with hc[0]:
-    st.markdown(
-        "<div style='white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
-        "font-size:20px;font-weight:700;line-height:1.3;padding-top:2px'>"
-        f"📅 FS 차종 게이트 일정 관리 App"
-        f"<span style='font-size:11px;color:#888;font-weight:400'>"
-        f" &nbsp;ver.{get_git_version()}</span></div>",
-        unsafe_allow_html=True,
-    )
-with hc[1]:
-    dot = "🟢" if has_cf else "🔴"
-    st.markdown(
-        f"<div style='text-align:center;padding-top:6px;font-size:12px'>"
-        f"{dot}<br>Confluence</div>",
-        unsafe_allow_html=True,
-    )
-with hc[2]:
-    dot = "🟢" if has_jira else "🔴"
-    st.markdown(
-        f"<div style='text-align:center;padding-top:6px;font-size:12px'>"
-        f"{dot}<br>ADE Jira</div>",
-        unsafe_allow_html=True,
-    )
-with hc[3]:
-    dot = "🟢" if has_ai else "🔴"
-    st.markdown(
-        f"<div style='text-align:center;padding-top:6px;font-size:12px'>"
-        f"{dot}<br>AI</div>",
-        unsafe_allow_html=True,
-    )
-with hc[4]:
+# 제목 행
+title_col, gear_col = st.columns([11, 1])
+with title_col:
+    st.header(f"📅 FS 차종 게이트 일정 관리 App  —  ver.{get_git_version()}")
+with gear_col:
     if st.button("⚙️", help="AI 모델 등 추가 설정", use_container_width=True):
         settings_dialog()
+
+# 상태 행
+s1, s2, s3, s4 = st.columns(4)
+s1.caption(f"{'🟢' if has_cf   else '🔴'} Confluence  {'연결됨' if has_cf   else '미설정'}")
+s2.caption(f"{'🟢' if has_jira else '🔴'} ADE Jira    {'연결됨' if has_jira else '미설정'}")
+s3.caption(f"{'🟢' if has_ai   else '🔴'} AI          {'대기'   if has_ai   else '미설정'}")
+s4.caption(f"JIRA: {JIRA_BASE.replace('https://','')}")
 
 st.divider()
 
