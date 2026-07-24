@@ -215,10 +215,11 @@ def confluence_update(email: str, token: str, html_body: str):
         return False, f"PUT 실패: {e}"
 
 
-def jira_get_fields(email: str, token: str) -> dict:
+def jira_get_fields(jira_token: str) -> dict:
+    """JIRA 필드 목록 조회 — ade-jira는 Bearer 토큰 사용"""
     if st.session_state.get("jira_field_map"):
         return st.session_state.jira_field_map
-    kw = _atlassian_kwargs(email, token)
+    kw = _atlassian_kwargs("", jira_token)   # 이메일 없음 → Bearer
     try:
         r = requests.get(f"{JIRA_BASE}/rest/api/3/field", timeout=10, **kw)
         if r.ok:
@@ -237,8 +238,9 @@ def find_custom_field(field_map: dict, target: str):
     return None
 
 
-def jira_search(email: str, token: str, jql: str, my_only: bool = False):
-    kw  = _atlassian_kwargs(email, token)
+def jira_search(jira_token: str, jql: str, my_only: bool = False):
+    """JIRA 검색 — ade-jira는 Bearer 토큰 사용"""
+    kw  = _atlassian_kwargs("", jira_token)  # 이메일 없음 → Bearer
     url = f"{JIRA_BASE}/rest/api/3/search"
     if my_only:
         jql = f"({jql}) AND assignee = currentUser()"
@@ -297,8 +299,9 @@ def _init():
         "file_cache":     {},
         "selected_file":  None,
         "api_key":        "",
-        "cf_email":       "",
-        "cf_token":       "",
+        "jira_token":     "",   # ade-jira.hmckmc.co.kr (Bearer)
+        "cf_token":       "",   # hmg.atlassian.net (Basic Auth)
+        "cf_email":       "",   # Confluence Basic Auth용 이메일
         "ai_engine":      "Gemini",
         "ai_model":       "gemini-2.5-pro",
     }.items():
@@ -420,48 +423,53 @@ def jira_detail_dialog(issue: dict):
 
 
 # ── 런타임 인증값 ──────────────────────────────────────────────────────────────
-api_key  = st.session_state.get("api_key", "")
-cf_token = st.session_state.get("cf_token", "")
-cf_email = st.session_state.get("cf_email", "")
-engine   = st.session_state.get("ai_engine", "Gemini")
-model    = st.session_state.get("ai_model", "gemini-2.5-pro")
-has_ai   = bool(api_key)
-has_cf   = bool(cf_token)   # JIRA/CF URL은 코드에 고정
+api_key    = st.session_state.get("api_key", "")
+jira_token = st.session_state.get("jira_token", "")
+cf_token   = st.session_state.get("cf_token", "")
+cf_email   = st.session_state.get("cf_email", "")
+engine     = st.session_state.get("ai_engine", "Gemini")
+model      = st.session_state.get("ai_model", "gemini-2.5-pro")
+has_ai     = bool(api_key)
+has_jira   = bool(jira_token)
+has_cf     = bool(cf_token)   # Confluence (hmg.atlassian.net)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 헤더
 # ══════════════════════════════════════════════════════════════════════════════
-hc = st.columns([4, 1, 1, 1, 0.6])
+hc = st.columns([5, 1, 1, 1, 0.7])
 with hc[0]:
     st.markdown(
-        f"<h2 style='margin:0;padding:2px 0'>FS 차종 게이트 일정 관리 App"
-        f"<span style='font-size:13px;color:#888;font-weight:normal'> &nbsp;ver.{get_git_version()}</span></h2>",
+        "<div style='white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+        "font-size:20px;font-weight:700;line-height:1.3;padding-top:2px'>"
+        f"📅 FS 차종 게이트 일정 관리 App"
+        f"<span style='font-size:11px;color:#888;font-weight:400'>"
+        f" &nbsp;ver.{get_git_version()}</span></div>",
         unsafe_allow_html=True,
     )
 with hc[1]:
     dot = "🟢" if has_cf else "🔴"
     st.markdown(
-        f"<div style='text-align:center;padding-top:10px;font-size:13px'>"
-        f"{dot} Confluence</div>",
+        f"<div style='text-align:center;padding-top:6px;font-size:12px'>"
+        f"{dot}<br>Confluence</div>",
         unsafe_allow_html=True,
     )
 with hc[2]:
-    dot = "🟢" if has_cf else "🔴"
+    dot = "🟢" if has_jira else "🔴"
     st.markdown(
-        f"<div style='text-align:center;padding-top:10px;font-size:13px'>"
-        f"{dot} ADE Jira</div>",
+        f"<div style='text-align:center;padding-top:6px;font-size:12px'>"
+        f"{dot}<br>ADE Jira</div>",
         unsafe_allow_html=True,
     )
 with hc[3]:
     dot = "🟢" if has_ai else "🔴"
     st.markdown(
-        f"<div style='text-align:center;padding-top:10px;font-size:13px'>"
-        f"{dot} AI {'대기' if has_ai else '미설정'}</div>",
+        f"<div style='text-align:center;padding-top:6px;font-size:12px'>"
+        f"{dot}<br>AI</div>",
         unsafe_allow_html=True,
     )
 with hc[4]:
-    if st.button("⚙️", help="설정 (JIRA 토큰 · AI 키)", use_container_width=True):
+    if st.button("⚙️", help="AI 모델 등 추가 설정", use_container_width=True):
         settings_dialog()
 
 st.divider()
@@ -478,17 +486,36 @@ left_col, right_col = st.columns([33, 67])
 # ─────────────────────────────────────────────────────────────────────────────
 with left_col:
     # ── 인증 파일 (항상 표시) ────────────────────────────────────────────────
-    ak_col, tok_col = st.columns(2)
-    with ak_col:
-        f_api_main = st.file_uploader("① H-CHAT API 키 (.txt)", type=["txt"], key="main_api")
+    c_ai, c_jira = st.columns(2)
+    with c_ai:
+        f_api_main = st.file_uploader("① H-CHAT API 키", type=["txt"], key="main_api")
         read_txt_file(f_api_main, "api_key")
-        api_key = st.session_state.get("api_key", "")   # 갱신
+        api_key = st.session_state.get("api_key", "")
         has_ai  = bool(api_key)
-    with tok_col:
-        f_tok_main = st.file_uploader("② JIRA/CF 토큰 (.txt)", type=["txt"], key="main_tok")
-        read_txt_file(f_tok_main, "cf_token")
-        cf_token = st.session_state.get("cf_token", "")  # 갱신
+    with c_jira:
+        f_jira_main = st.file_uploader("② JIRA 토큰", type=["txt"], key="main_jira")
+        read_txt_file(f_jira_main, "jira_token")
+        jira_token = st.session_state.get("jira_token", "")
+        has_jira   = bool(jira_token)
+
+    c_cf, c_em = st.columns(2)
+    with c_cf:
+        f_cf_main = st.file_uploader("③ Confluence 토큰", type=["txt"], key="main_cf")
+        read_txt_file(f_cf_main, "cf_token")
+        cf_token = st.session_state.get("cf_token", "")
         has_cf   = bool(cf_token)
+    with c_em:
+        st.markdown("<div style='font-size:14px'>④ Confluence 이메일</div>",
+                    unsafe_allow_html=True)
+        cf_email_input = st.text_input(
+            "Confluence 이메일",
+            value=st.session_state.get("cf_email", ""),
+            placeholder="user@hmg.com",
+            label_visibility="collapsed",
+        )
+        if cf_email_input:
+            st.session_state.cf_email = cf_email_input
+            cf_email = cf_email_input
 
     st.divider()
     st.markdown("#### 입력")
@@ -647,7 +674,7 @@ with left_col:
             if st.button(
                 f"Confluence 반영 ({confirmed_count}건)",
                 type="primary", use_container_width=True,
-                disabled=not (confirmed_count and has_cf),
+                disabled=not (confirmed_count and has_cf and cf_email),
                 key="confirmBtn",
             ):
                 ok, msg = confluence_update(
@@ -816,20 +843,20 @@ with right_col:
         with jc[2]:
             jira_btn = st.button("조회", type="primary", use_container_width=True)
 
-        auto_run = bool(auto_car and auto_car in car_types and has_cf)
+        auto_run = bool(auto_car and auto_car in car_types and has_jira)
         if auto_run:
             st.session_state.selected_car = None
 
         if jira_btn or auto_run:
-            if not has_cf:
-                st.warning("설정에서 JIRA URL과 토큰을 입력하세요.")
+            if not has_jira:
+                st.warning("왼쪽 패널에서 JIRA 토큰(.txt)을 업로드하세요.")
             else:
                 jql = f"project={JIRA_PROJECT} ORDER BY updated DESC"
                 if selected_car != "전체":
                     jql = f'project={JIRA_PROJECT} AND text~"{selected_car}" ORDER BY updated DESC'
                 with st.spinner("JIRA 조회 중..."):
-                    fmap = jira_get_fields(cf_email, cf_token)
-                    issues, err = jira_search(cf_email, cf_token, jql, my_only)
+                    fmap = jira_get_fields(jira_token)
+                    issues, err = jira_search(jira_token, jql, my_only)
                 st.session_state.jira_issues = issues
                 if err:
                     st.error(err)
