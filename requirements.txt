@@ -6,3 +6,5 @@ pandas
 pillow
 requests
 openpyxl
+plotly
+PyPDF2

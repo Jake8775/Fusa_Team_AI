@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Day 2 Mission Description — 일정관리 Desktop App</title>
+  <style>
+    /* ── Design Tokens (UI예시.html 기준 일치) ── */
+    :root {
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --panel-soft: #fbfcfe;
+      --line: #e5e7eb;
+      --line-2: #eef2f7;
+      --text: #111827;
+      --text-2: #374151;
+      --text-3: #6b7280;
+      --blue: #2563eb;
+      --blue-soft: #eff6ff;
+      --green: #16a34a;
+      --green-soft: #ecfdf3;
+      --orange: #ea580c;
+      --orange-soft: #fff7ed;
+      --red: #dc2626;
+      --red-soft: #fef2f2;
+      --purple: #7c3aed;
+      --purple-soft: #f5f3ff;
+      --amber: #d97706;
+      --amber-soft: #fffbeb;
+      --shadow: 0 1px 3px rgba(16,24,40,0.05), 0 4px 16px rgba(16,24,40,0.06);
+      --radius-xl: 20px;
+      --radius-lg: 16px;
+      --radius-md: 12px;
+      --radius-sm: 8px;
+      --sidebar-w: 196px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Hyundai Sans Text Pro", "Segoe UI", "Malgun Gothic", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    /* ── Layout ── */
+    .layout {
+      display: flex;
+      min-height: 100vh;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: var(--sidebar-w);
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      padding: 20px 0 24px;
+      flex-shrink: 0;
+    }
+
+    .sidebar-logo {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 16px 18px;
+      border-bottom: 1px solid var(--line-2);
+      margin-bottom: 14px;
+    }
+
+    .sidebar-logo-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: 9px;
+      background: linear-gradient(135deg, var(--blue), #60a5fa);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .sidebar-logo-text {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-3);
+      letter-spacing: 0.3px;
+      line-height: 1.35;
+    }
+
+    .toc-label {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--text-3);
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      padding: 0 16px 8px;
+    }
+
+    .toc-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 16px;
+      font-size: 12px;
+      color: var(--text-2);
+      cursor: pointer;
+      border-left: 2px solid transparent;
+      transition: all 0.15s;
+      text-decoration: none;
+    }
+
+    .toc-item:hover {
+      background: var(--blue-soft);
+      color: var(--blue);
+      border-left-color: var(--blue);
+    }
+
+    .toc-item.active {
+      background: var(--blue-soft);
+      color: var(--blue);
+      border-left-color: var(--blue);
+      font-weight: 600;
+    }
+
+    .toc-num {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--line-2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 700;
+      flex-shrink: 0;
+      color: var(--text-3);
+    }
+
+    .toc-item.active .toc-num {
+      background: var(--blue);
+      color: #fff;
+    }
+
+    /* ── Main ── */
+    .main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 32px 44px 64px;
+    }
+
+    /* ── Hero ── */
+    .hero {
+      background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 55%, #60a5fa 100%);
+      border-radius: var(--radius-xl);
+      padding: 36px 40px 28px;
+      color: #fff;
+      margin-bottom: 20px;
+    }
+
+    .hero-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.2);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      margin-bottom: 14px;
+    }
+
+    .hero h1 {
+      font-size: 28px;
+      font-weight: 800;
+      line-height: 1.25;
+      margin-bottom: 10px;
+    }
+
+    .hero-desc {
+      font-size: 14px;
+      line-height: 1.85;
+      color: rgba(255,255,255,0.85);
+      margin-bottom: 26px;
+    }
+
+    .meta-cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+
+    .meta-card {
+      background: rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.22);
+      border-radius: var(--radius-md);
+      padding: 13px 15px;
+      backdrop-filter: blur(4px);
+    }
+
+    .meta-card-label {
+      font-size: 10px;
+      font-weight: 700;
+      color: rgba(255,255,255,0.65);
+      letter-spacing: 0.4px;
+      margin-bottom: 5px;
+    }
+
+    .meta-card-value {
+      font-size: 14px;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 2px;
+    }
+
+    .meta-card-sub {
+      font-size: 11px;
+      color: rgba(255,255,255,0.78);
+    }
+
+    /* ── Section ── */
+    .section {
+      margin-bottom: 16px;
+      scroll-margin-top: 28px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: 22px 26px;
+      box-shadow: var(--shadow);
+    }
+
+    .section-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    /* ── Two-col row ── */
+    .row-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    /* ── Text ── */
+    p {
+      font-size: 13.5px;
+      color: var(--text-2);
+      line-height: 1.85;
+    }
+
+    /* ── Input Pills ── */
+    .pill-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      border: 1px solid;
+    }
+
+    .pill-blue   { background: var(--blue-soft);   border-color: #bfdbfe; color: #1e40af; }
+    .pill-orange { background: var(--orange-soft);  border-color: #fed7aa; color: #9a3412; }
+    .pill-purple { background: var(--purple-soft);  border-color: #ddd6fe; color: #5b21b6; }
+    .pill-green  { background: var(--green-soft);   border-color: #bbf7d0; color: #166534; }
+    .pill-gray   { background: #f9fafb;             border-color: var(--line); color: var(--text-2); }
+
+    .drag-note {
+      padding: 10px 14px;
+      background: var(--blue-soft);
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      color: #1e40af;
+    }
+
+    /* ── Tool Badges ── */
+    .tool-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .tool-badge {
+      padding: 6px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 600;
+      background: var(--amber-soft);
+      border: 1px solid #fde68a;
+      color: #92400e;
+    }
+
+    /* ── Requirements ── */
+    .req-list { display: flex; flex-direction: column; gap: 12px; }
+
+    .req-item {
+      display: flex;
+      gap: 14px;
+      padding: 16px 18px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--line-2);
+      border-left: 3px solid;
+      background: var(--panel-soft);
+    }
+
+    .req-item.r1 { border-left-color: var(--blue); }
+    .req-item.r2 { border-left-color: var(--green); }
+    .req-item.r3 { border-left-color: var(--purple); }
+    .req-item.r4 { border-left-color: var(--orange); }
+    .req-item.r5 { border-left-color: var(--red); }
+    .req-item.r6 { border-left-color: var(--amber); }
+
+    .req-num {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 800;
+      flex-shrink: 0;
+      color: #fff;
+      margin-top: 1px;
+    }
+
+    .r1 .req-num { background: var(--blue); }
+    .r2 .req-num { background: var(--green); }
+    .r3 .req-num { background: var(--purple); }
+    .r4 .req-num { background: var(--orange); }
+    .r5 .req-num { background: var(--red); }
+    .r6 .req-num { background: var(--amber); }
+
+    .req-body { flex: 1; min-width: 0; }
+
+    .req-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 5px;
+    }
+
+    .req-desc {
+      font-size: 13px;
+      color: var(--text-2);
+      line-height: 1.82;
+    }
+
+    code {
+      font-size: 12px;
+      background: #f1f5f9;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-family: "Consolas", "Menlo", monospace;
+      color: #334155;
+    }
+
+    /* ── Warning Callout ── */
+    .callout-warn {
+      margin-top: 12px;
+      padding: 13px 15px;
+      background: #fffbeb;
+      border: 1px solid #fcd34d;
+      border-left: 3px solid var(--amber);
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      color: #78350f;
+      line-height: 1.82;
+    }
+
+    .callout-warn strong {
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      color: #92400e;
+      margin-bottom: 6px;
+    }
+
+    /* ── Settings Grid ── */
+    .settings-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .settings-field {
+      padding: 11px 14px;
+      background: var(--panel-soft);
+      border: 1px solid var(--line-2);
+      border-radius: var(--radius-sm);
+    }
+
+    .settings-field-label {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--text-3);
+      letter-spacing: 0.4px;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .settings-field-value {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 2px;
+    }
+
+    .settings-field-note {
+      font-size: 11px;
+      color: var(--text-3);
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 1px 7px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .badge-required { background: var(--red-soft);   border: 1px solid #fecaca; color: var(--red); }
+    .badge-fixed    { background: var(--green-soft);  border: 1px solid #bbf7d0; color: var(--green); }
+    .badge-optional { background: #f9fafb;            border: 1px solid var(--line); color: var(--text-3); }
+
+    /* ── Business Rules Flow ── */
+    .flow {
+      display: flex;
+      align-items: flex-start;
+      gap: 0;
+      flex-wrap: wrap;
+      margin: 14px 0 16px;
+    }
+
+    .flow-node {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .flow-box {
+      padding: 10px 18px;
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      font-weight: 700;
+      text-align: center;
+      white-space: nowrap;
+      border: 1.5px solid;
+    }
+
+    .flow-box.fb { background: var(--blue-soft);   border-color: #93c5fd; color: #1e40af; }
+    .flow-box.fg { background: var(--green-soft);  border-color: #86efac; color: #166534; }
+    .flow-box.fp { background: var(--purple-soft); border-color: #c4b5fd; color: #5b21b6; }
+    .flow-box.fo { background: var(--orange-soft); border-color: #fdba74; color: #9a3412; }
+
+    .flow-sub {
+      font-size: 11px;
+      color: var(--text-3);
+      text-align: center;
+      line-height: 1.4;
+      min-height: 28px;
+    }
+
+    .flow-arrow {
+      font-size: 18px;
+      color: var(--text-3);
+      padding: 0 8px;
+      padding-top: 10px; /* align with box top */
+    }
+
+    .flow-rules {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .flow-rule {
+      font-size: 13px;
+      color: var(--text-2);
+      padding: 9px 13px;
+      background: var(--panel-soft);
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--line-2);
+      line-height: 1.75;
+    }
+
+    /* ── Note List ── */
+    .note-list { display: flex; flex-direction: column; gap: 9px; }
+
+    .note-item {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      font-size: 13px;
+      color: var(--text-2);
+      line-height: 1.78;
+    }
+
+    .note-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--blue);
+      margin-top: 8px;
+      flex-shrink: 0;
+    }
+
+    /* ── Submission ── */
+    .submit-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .submit-item {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 11px 14px;
+      background: var(--green-soft);
+      border: 1px solid #bbf7d0;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 600;
+      color: #166534;
+    }
+
+    /* ── Accordion ── */
+    .accordion {
+      border: 1px solid #fde68a;
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+
+    .accordion-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 22px;
+      cursor: pointer;
+      background: var(--amber-soft);
+      user-select: none;
+      transition: background 0.15s;
+    }
+
+    .accordion-header:hover { background: #fef3c7; }
+
+    .accordion-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #78350f;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .accordion-chevron {
+      font-size: 12px;
+      color: #92400e;
+      transition: transform 0.2s;
+      flex-shrink: 0;
+    }
+
+    .accordion-chevron.open { transform: rotate(180deg); }
+
+    .accordion-body {
+      padding: 20px 22px;
+      background: var(--panel);
+      display: none;
+      border-top: 1px solid #fde68a;
+    }
+
+    .accordion-body.open { display: block; }
+
+    .hint-list { display: flex; flex-direction: column; gap: 10px; }
+
+    .hint-item {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      font-size: 13px;
+      color: #92400e;
+      line-height: 1.82;
+    }
+
+    .hint-icon { font-size: 14px; margin-top: 1px; flex-shrink: 0; }
+
+    /* ── Print ── */
+    @media print {
+      .sidebar { display: none; }
+      .main { padding: 16px; }
+      .accordion-body { display: block !important; }
+      .hero { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- ── SIDEBAR ── -->
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <div class="sidebar-logo-icon">GS</div>
+      <div class="sidebar-logo-text">Day 2<br>Mission</div>
+    </div>
+    <div class="toc-label">목차</div>
+    <a class="toc-item" href="#goal"><span class="toc-num">1</span>Goal &amp; Scenario</a>
+    <a class="toc-item" href="#inputs"><span class="toc-num">2</span>Required Inputs</a>
+    <a class="toc-item" href="#tools"><span class="toc-num">3</span>Allowed Tools</a>
+    <a class="toc-item" href="#reqs"><span class="toc-num">4</span>Core Requirements</a>
+    <a class="toc-item" href="#biz"><span class="toc-num">5</span>Business Rules</a>
+    <a class="toc-item" href="#data"><span class="toc-num">6</span>Data / Storage</a>
+    <a class="toc-item" href="#impl"><span class="toc-num">7</span>Implementation</a>
+    <a class="toc-item" href="#submit"><span class="toc-num">8</span>Submission</a>
+    <a class="toc-item" href="#hints"><span class="toc-num">9</span>Hints</a>
+  </nav>
+
+  <!-- ── MAIN ── -->
+  <main class="main" id="main-scroll">
+
+    <!-- HERO -->
+    <div class="hero">
+      <div class="hero-badge">DAY 2 MISSION DESCRIPTION</div>
+      <h1>일정관리 Desktop App 만들기</h1>
+      <p class="hero-desc">
+        다양한 입력자료로부터 차종 게이트 이벤트 일정을 추출하고,<br>
+        Confluence 반영 및 JIRA 연계를 지원하는 종합 일정관리 Desktop App을 구현하세요.
+      </p>
+      <div class="meta-cards">
+        <div class="meta-card">
+          <div class="meta-card-label">진행 일시</div>
+          <div class="meta-card-value">2026.07.24 (금)</div>
+          <div class="meta-card-sub">13:00 ~ 14:30</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-card-label">제한시간</div>
+          <div class="meta-card-value">1시간 30분</div>
+          <div class="meta-card-sub">13:00 시작 / 14:30 종료</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-card-label">제출 형식</div>
+          <div class="meta-card-value">MSI 선호</div>
+          <div class="meta-card-sub">설치형 패키지 또는 Python Zip</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-card-label">구현 조건</div>
+          <div class="meta-card-value">언어 제한 없음</div>
+          <div class="meta-card-sub">UI 자유 / 기능 확장 허용</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GOAL & SCENARIO -->
+    <div class="section" id="goal">
+      <div class="row-2">
+        <div class="card">
+          <div class="section-title">🎯 Mission Goal</div>
+          <p>기능안전검증팀은 차종별 <strong>Gate / P2 이벤트 일정</strong>을 관리하고, 이를 기반으로 월별 준비 일정 확인 및 JIRA 점검 티켓 조회를 수행해야 합니다.</p>
+          <br>
+          <p>본 미션은 다양한 입력자료에서 일정 정보를 추출하고, 확인/수정 후 Confluence에 반영하며 차종별 타임라인과 JIRA 연계를 지원하는 <strong>실행 가능한 Desktop App</strong>을 구현하는 것이 목표입니다.</p>
+        </div>
+        <div class="card">
+          <div class="section-title">📋 Scenario</div>
+          <p>관련 일정 정보는 이메일(아웃룩 드래그), PDF, 이미지, 텍스트, 엑셀 등 <strong>다양한 형식</strong>으로 전달될 수 있습니다.</p>
+          <br>
+          <p>사용자는 입력자료에서 추출된 일정 후보를 검토한 뒤, Confluence 기반 저장소에 반영하고 차종별 타임라인 및 월별 이벤트 화면에서 관리할 수 있어야 합니다.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- REQUIRED INPUTS -->
+    <div class="section" id="inputs">
+      <div class="card">
+        <div class="section-title">📥 Required Inputs</div>
+        <div class="pill-grid">
+          <span class="pill pill-blue">📧 이메일 메시지 (아웃룩 드래그)</span>
+          <span class="pill pill-orange">📄 PDF</span>
+          <span class="pill pill-purple">🖼 그림파일 (JPG / PNG)</span>
+          <span class="pill pill-green">📝 텍스트 선택 &amp; 드래그</span>
+          <span class="pill pill-gray">📊 엑셀 파일</span>
+        </div>
+        <div class="drag-note">
+          💡 App 내에는 위 자료를 받을 수 있는 <strong>Drag &amp; Drop Zone</strong>이 포함되어야 합니다.
+        </div>
+      </div>
+    </div>
+
+    <!-- ALLOWED TOOLS -->
+    <div class="section" id="tools">
+      <div class="card">
+        <div class="section-title">🛠 Allowed Tools / Tech</div>
+        <div class="tool-grid">
+          <span class="tool-badge">H-CHAT</span>
+          <span class="tool-badge">Claude Code</span>
+          <span class="tool-badge">Codex</span>
+          <span class="tool-badge">Co-Pilot</span>
+          <span class="tool-badge">그 외 사내 AI 도구</span>
+        </div>
+        <p style="font-size:13px; color:var(--text-3);">구현 언어 및 기술 스택에는 제한이 없습니다.</p>
+      </div>
+    </div>
+
+    <!-- CORE REQUIREMENTS -->
+    <div class="section" id="reqs">
+      <div class="card">
+        <div class="section-title">✅ Core Functional Requirements</div>
+        <div class="req-list">
+
+          <div class="req-item r1">
+            <div class="req-num">1</div>
+            <div class="req-body">
+              <div class="req-title">일정 정보 추출</div>
+              <div class="req-desc">입력자료로부터 차종, 이벤트 (GATE-3 / GATE-4 / GATE-5 / P2 / LP2 등), 담당자 및 일정 정보를 추출할 수 있어야 합니다.</div>
+            </div>
+          </div>
+
+          <div class="req-item r2">
+            <div class="req-num">2</div>
+            <div class="req-body">
+              <div class="req-title">일정 추출 후보 관리</div>
+              <div class="req-desc">입력자료별로 일정 추출 후보를 확인/수정할 수 있어야 하며, 후보는 <strong>차종 / 이벤트 / 담당 + 복수 일정 항목</strong> 구조로 다룰 수 있어야 합니다.</div>
+            </div>
+          </div>
+
+          <div class="req-item r3">
+            <div class="req-num">3</div>
+            <div class="req-body">
+              <div class="req-title">Confluence 반영</div>
+              <div class="req-desc">
+                확정된 일정은 Confluence 공유 페이지를 기준 저장소처럼 활용하여 반영할 수 있어야 합니다.<br>
+                <strong>※ 대상:</strong> <code>hmg.atlassian.net/wiki/spaces/RND/pages/604243425/</code> 하위 그룹별 페이지 (Page ID 고정)
+              </div>
+            </div>
+          </div>
+
+          <div class="req-item r4">
+            <div class="req-num">4</div>
+            <div class="req-body">
+              <div class="req-title">차종 게이트 이벤트 타임라인</div>
+              <div class="req-desc">
+                차종별 1라인 형태의 타임라인으로 표현되어야 하며, 화면에는 최소 <strong>2개월 수준의 기간 흐름</strong>을 확인할 수 있어야 합니다.<br>
+                <code>◀ 2026-07 ▶</code> 이동 버튼으로 기간 이동 가능. 차종 클릭 시 우측 JIRA 조회와 연동.
+              </div>
+            </div>
+          </div>
+
+          <div class="req-item r5">
+            <div class="req-num">5</div>
+            <div class="req-body">
+              <div class="req-title">월별 이벤트 조회 및 JIRA 연계 <span style="font-size:12px; font-weight:500; color:var(--text-3);">(Project: ADE)</span></div>
+              <div class="req-desc">
+                월 이동 버튼에 따라 해당 월의 이벤트 목록이 조회되며, 특정 차종 선택 시 ADE 프로젝트의 관련 JIRA 목록 조회 및 티켓 상세보기가 가능해야 합니다.<br>
+                상세보기에서 <strong>각 필드 속성</strong> (Key, 단계, 점검유형, 시스템, 상태, 담당자 등) 조회 및 <strong>파일 Drag &amp; Drop 첨부</strong>를 지원해야 합니다.
+              </div>
+              <div class="callout-warn">
+                <strong>⚠ 저장 기능 제한 안내 (UI 표시 문구)</strong>
+                저장 기능은 현재 제한됩니다. 연결된 JIRA는 운영(Live) 서버로, 실제 데이터의 추가·수정·삭제 기능은 구현할 수 있으나 테스트 및 실제 호출은 허용되지 않습니다.<br>
+                티켓 조회 화면은 실제 웹 브라우저 티켓보기와 속성 및 형식이 일치해야 하며, 조회 화면에서 사용자 입력은 허용하나 <strong>실제 저장 버튼은 Disable</strong> 되어야 합니다.
+              </div>
+            </div>
+          </div>
+
+          <div class="req-item r6">
+            <div class="req-num">6</div>
+            <div class="req-body">
+              <div class="req-title">설정 화면 <span style="font-size:12px; font-weight:500; color:var(--text-3);">— Confluence &amp; JIRA 인증</span></div>
+              <div class="req-desc">Confluence 반영 및 JIRA 조회가 동작하려면 Atlassian 계정 인증이 필요합니다. 설정 화면에서 아래 항목을 입력·저장할 수 있어야 합니다.</div>
+              <div class="settings-grid">
+                <div class="settings-field">
+                  <div class="settings-field-label">사용자 이메일 <span class="badge badge-required">필수</span></div>
+                  <div class="settings-field-value">Atlassian 계정 이메일</div>
+                  <div class="settings-field-note">Basic Auth 인증 ID로 사용</div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-label">API Token <span class="badge badge-required">필수</span></div>
+                  <div class="settings-field-value">Atlassian API Token</div>
+                  <div class="settings-field-note">JIRA + Confluence 공용 단일 토큰</div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-label">JIRA Base URL <span class="badge badge-optional">기본값 제공</span></div>
+                  <div class="settings-field-value">hmg.atlassian.net</div>
+                  <div class="settings-field-note">Project Key: ADE (고정 하드코딩)</div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-label">Confluence Page <span class="badge badge-fixed">고정</span></div>
+                  <div class="settings-field-value">Page ID: 604243425</div>
+                  <div class="settings-field-note">단일 공유 페이지 (하드코딩)</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- BUSINESS RULES -->
+    <div class="section" id="biz">
+      <div class="card">
+        <div class="section-title">📐 Business Rules</div>
+        <p style="font-size:12px; color:var(--text-3); margin-bottom:2px;">일정 항목의 표준 진행 순서</p>
+        <div class="flow">
+          <div class="flow-node">
+            <div class="flow-box fb">제출요청</div>
+            <div class="flow-sub">본회의 1개월 전<br>(예상치 활용 가능)</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node">
+            <div class="flow-box fg">실무회의</div>
+            <div class="flow-sub">자료 마감<br>1주 전 기준</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node">
+            <div class="flow-box fp">예비회의</div>
+            <div class="flow-sub">&nbsp;</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node">
+            <div class="flow-box fo">본회의</div>
+            <div class="flow-sub">확정 기준일</div>
+          </div>
+        </div>
+        <div class="flow-rules">
+          <div class="flow-rule">📌 일정이 <strong>일부만 확인</strong>된 경우 → 확인된 항목만 반영 가능</div>
+          <div class="flow-rule">📌 <strong>본회의만 확인</strong>된 경우 → 본회의 기준 1개월 전을 제출요청(예상)으로 활용 가능</div>
+          <div class="flow-rule">📌 자료 제출 마감은 기본적으로 <strong>실무회의 1주 전</strong> 기준으로 활용</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DATA / STORAGE -->
+    <div class="section" id="data">
+      <div class="card">
+        <div class="section-title">🗄 Data / Storage Notes</div>
+        <div class="note-list">
+          <div class="note-item">
+            <div class="note-dot"></div>
+            <div>Confluence는 <strong>차종당 1 Row</strong> 구조의 마스터 페이지를 기준 저장소처럼 활용합니다.</div>
+          </div>
+          <div class="note-item">
+            <div class="note-dot"></div>
+            <div>이벤트별 세부 일정은 <strong>항목명: 값</strong> 형식으로 저장될 수 있습니다.</div>
+          </div>
+          <div class="note-item">
+            <div class="note-dot"></div>
+            <div>입력자료 반영 이력은 별도 <strong>Import Log</strong> 구조로 관리할 수 있습니다.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- IMPLEMENTATION NOTES -->
+    <div class="section" id="impl">
+      <div class="card">
+        <div class="section-title">⚙ Implementation Notes</div>
+        <div class="note-list">
+          <div class="note-item">
+            <div class="note-dot"></div>
+            <div>UI는 App 목적에 부합한다면 자유롭게 구성 가능합니다.</div>
+          </div>
+          <div class="note-item">
+            <div class="note-dot"></div>
+            <div>편의 기능 또는 기능 향상을 위한 추가 기능은 허용됩니다.</div>
+          </div>
+          <div class="note-item">
+            <div class="note-dot"></div>
+            <div>예: 테마, 검색, 필터, 정렬, 검증 보조, 로그 관리 등 <span style="color:var(--text-3);">(설정 화면은 Req #6으로 필수)</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SUBMISSION -->
+    <div class="section" id="submit">
+      <div class="card">
+        <div class="section-title">📦 Submission</div>
+        <div class="submit-grid">
+          <div class="submit-item">✅ 실행 가능한 App</div>
+          <div class="submit-item">✅ 핵심 기능 시연 가능 상태</div>
+          <div class="submit-item">✅ MSI / Setup.exe 선호</div>
+          <div class="submit-item">✅ Python Zip + 릴리즈 노트 허용</div>
+        </div>
+        <p style="margin-top:12px; font-size:13px; color:var(--text-3);">필요 시 간단한 실행 방법 또는 설명 문서를 포함하세요.</p>
+      </div>
+    </div>
+
+    <!-- HINTS (Accordion) -->
+    <div class="section" id="hints">
+      <div class="accordion">
+        <div class="accordion-header" onclick="toggleHints(this)">
+          <div class="accordion-title">💡 Hint — 클릭하여 펼치기</div>
+          <span class="accordion-chevron" id="hint-chevron">▼</span>
+        </div>
+        <div class="accordion-body" id="hint-body">
+          <div class="hint-list">
+            <div class="hint-item">
+              <span class="hint-icon">🔑</span>
+              <div>하나의 문서에 여러 일정 fact가 포함될 수 있으므로, <strong>차종 / 이벤트 / 담당 + 복수 일정 항목</strong> 구조를 먼저 정의해보세요.</div>
+            </div>
+            <div class="hint-item">
+              <span class="hint-icon">🔑</span>
+              <div>Confluence에 저장할 형식과 App 내부 공통 데이터 구조를 먼저 정하면 구현과 통합이 쉬워집니다.</div>
+            </div>
+            <div class="hint-item">
+              <span class="hint-icon">🤝</span>
+              <div>여러 명이 협업할 경우, 기능 분담보다 먼저 <strong>서로 주고받을 데이터 형식</strong>을 정해보세요.</div>
+            </div>
+            <div class="hint-item">
+              <span class="hint-icon">🤝</span>
+              <div>입력/추출 후보 → Confluence 반영 → 타임라인/월별 조회 → JIRA 연계를 나누되, <strong>공통 데이터 구조는 먼저 합의</strong>하는 것이 좋습니다.</div>
+            </div>
+            <div class="hint-item">
+              <span class="hint-icon">🚀</span>
+              <div>샘플 차종 2~3개를 먼저 고정하면 병렬 구현과 통합이 수월합니다.</div>
+            </div>
+            <div class="hint-item">
+              <span class="hint-icon">🚀</span>
+              <div><strong>입력 → 후보 확인/수정 → Confluence 반영 → 타임라인 조회 → JIRA 연계</strong>의 핵심 흐름이 자연스럽게 이어지도록 구성해보세요.</div>
+            </div>
+            <div class="hint-item">
+              <span class="hint-icon">📦</span>
+              <div>패키징 제출을 고려하면, 실행 파일 생성 가능 여부를 중간에 한 번 확인해보는 것이 안전합니다.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+  // ── Accordion ──
+  function toggleHints(header) {
+    const body = document.getElementById('hint-body');
+    const chevron = document.getElementById('hint-chevron');
+    const isOpen = body.classList.contains('open');
+    body.classList.toggle('open', !isOpen);
+    chevron.classList.toggle('open', !isOpen);
+    header.querySelector('.accordion-title').textContent =
+      isOpen ? '💡 Hint — 클릭하여 펼치기' : '💡 Hint — 클릭하여 접기';
+  }
+
+  // ── Active ToC highlight on scroll ──
+  const sections = document.querySelectorAll('.section[id]');
+  const tocItems = document.querySelectorAll('.toc-item');
+
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        tocItems.forEach(i => i.classList.remove('active'));
+        const active = document.querySelector(`.toc-item[href="#${entry.target.id}"]`);
+        if (active) active.classList.add('active');
+      }
+    });
+  }, { threshold: 0.35, rootMargin: '-10% 0px -60% 0px' });
+
+  sections.forEach(s => io.observe(s));
+</script>
+</body>
+</html>
