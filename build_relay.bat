@@ -3,11 +3,13 @@ chcp 65001 > nul
 echo HMG_Relay.exe 빌드 시작...
 echo.
 
+set OPENBLAS_NUM_THREADS=1
+
 pip install pyinstaller fastapi uvicorn openai anthropic google-genai
 
 echo.
 echo PyInstaller 빌드 중...
-pyinstaller --onefile --name HMG_Relay relay.py
+python -m PyInstaller --onefile --clean --name HMG_Relay relay.py
 
 echo.
 if exist dist\HMG_Relay.exe (

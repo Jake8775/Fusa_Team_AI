@@ -129,23 +129,86 @@ def parse_file(uploaded_file) -> str:
     uploaded_file.seek(0)
     raw  = uploaded_file.read()
     name = uploaded_file.name.lower()
+
+    # ── Excel ──────────────────────────────────────────────────────────────
     if name.endswith((".xlsx", ".xls")):
         try:
-            return pd.read_excel(io.BytesIO(raw)).to_string(index=False)
+            df = pd.read_excel(io.BytesIO(raw))
+            return df.to_string(index=False)
         except Exception as e:
             return f"[Excel 오류: {e}]"
+
+    # ── PDF ────────────────────────────────────────────────────────────────
     if name.endswith(".pdf"):
+        # 1순위: PyPDF2
         if PYPDF2_OK:
             try:
                 reader = PdfReader(io.BytesIO(raw))
-                return "\n".join(p.extract_text() or "" for p in reader.pages)
-            except Exception as e:
-                return f"[PDF 오류: {e}]"
-        return "[PyPDF2 미설치]"
+                text = "\n".join(p.extract_text() or "" for p in reader.pages)
+                if text.strip():
+                    return text
+            except Exception:
+                pass
+        # 2순위: pypdfium2
+        try:
+            import pypdfium2 as pdfium
+            pdf   = pdfium.PdfDocument(raw)
+            pages = [pdf[i].get_textpage().get_text_range() for i in range(len(pdf))]
+            text  = "\n".join(pages)
+            if text.strip():
+                return text
+        except ImportError:
+            pass
+        except Exception:
+            pass
+        # 3순위: pdfplumber
+        try:
+            import pdfplumber
+            with pdfplumber.open(io.BytesIO(raw)) as pdf:
+                text = "\n".join(p.extract_text() or "" for p in pdf.pages)
+            if text.strip():
+                return text
+        except ImportError:
+            pass
+        except Exception:
+            pass
+        return "[PDF 텍스트 추출 실패 — 텍스트 붙여넣기 기능을 사용하세요]"
+
+    # ── 이미지 → base64 → AI 프롬프트에 직접 포함 ─────────────────────────
     if name.endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
         mime = detect_mime(raw)
         b64  = base64.b64encode(raw).decode("ascii")
+        # relay_component는 텍스트만 지원 → 이미지를 data URI로 포함해 AI에 전달
         return f"[IMAGE|{mime}|{b64}]"
+
+    # ── MSG (Outlook) ──────────────────────────────────────────────────────
+    if name.endswith(".msg"):
+        try:
+            import extract_msg
+            msg  = extract_msg.Message(io.BytesIO(raw))
+            body = msg.body or ""
+            return (
+                f"Subject: {msg.subject or ''}\n"
+                f"From: {msg.sender or ''}\n"
+                f"Date: {msg.date or ''}\n"
+                f"Body:\n{body}"
+            )
+        except ImportError:
+            pass
+        except Exception:
+            pass
+        # extract_msg 없으면 텍스트로 시도
+        for enc in ["utf-8-sig", "utf-8", "euc-kr", "cp949"]:
+            try:
+                text = raw.decode(enc)
+                # 읽을 수 있는 텍스트가 포함되어 있으면 반환
+                if len([c for c in text if c.isprintable()]) > len(text) * 0.5:
+                    return text
+            except UnicodeDecodeError:
+                continue
+        return "[MSG 파싱 실패 — extract-msg 미설치. pip install extract-msg]"
+
+    # ── TXT / 기타 텍스트 ──────────────────────────────────────────────────
     for enc in ["utf-8-sig", "utf-8", "euc-kr", "cp949"]:
         try:
             return raw.decode(enc)
@@ -163,6 +226,140 @@ def parse_ai_response(text: str) -> list:
     except (json.JSONDecodeError, ValueError):
         pass
     return []
+
+
+def build_timeline_html(candidates: list, cur_m: date, range_end: date) -> str:
+    """UI예시.html 스타일 커스텀 타임라인 HTML 생성"""
+    from datetime import timedelta
+
+    total_days = max(1, (range_end - cur_m).days + 1)
+    COLS = 8
+
+    # 날짜 눈금
+    scale_labels = []
+    for i in range(COLS):
+        d = cur_m + timedelta(days=int(total_days * i / COLS))
+        scale_labels.append(d.strftime("%m/%d"))
+
+    def to_col(dval: str) -> int:
+        try:
+            dt = datetime.strptime(dval, "%Y-%m-%d").date()
+            if not (cur_m <= dt <= range_end):
+                return -1
+            return min(int((dt - cur_m).days / total_days * COLS), COLS - 1)
+        except Exception:
+            return -1
+
+    # 차종 그룹화
+    cars: dict = {}
+    for c in candidates:
+        car = c.get("car_type", "")
+        if car not in cars:
+            cars[car] = []
+        cars[car].append(c)
+
+    rows_html = ""
+    for car, clist in cars.items():
+        events_str = " / ".join(dict.fromkeys(c.get("event", "") for c in clist if c.get("event")))
+        owners_str = " · ".join(dict.fromkeys(c.get("owner", "") for c in clist if c.get("owner")))
+        confirmed   = any(c.get("confirmed") for c in clist)
+        left_border = "border-left:3px solid #2563eb;" if confirmed else ""
+
+        # 열별 뱃지
+        dots: dict = {i: [] for i in range(COLS)}
+        for c in clist:
+            for dk in DATE_KEYS:
+                dval = (c.get("dates") or {}).get(dk)
+                if not dval:
+                    continue
+                ci = to_col(dval)
+                if ci >= 0:
+                    dots[ci].append({
+                        "label": DATE_LABELS[dk],
+                        "color": COLOR_MAP[dk],
+                        "event": c.get("event", ""),
+                        "date":  dval,
+                    })
+
+        cells = ""
+        for ci in range(COLS):
+            inner = ""
+            for dot in dots[ci]:
+                inner += (
+                    f'<div style="margin:2px 1px;padding:3px 6px;border-radius:999px;'
+                    f'background:{dot["color"]}18;border:1.5px solid {dot["color"]};'
+                    f'color:{dot["color"]};font-size:10px;font-weight:700;'
+                    f'white-space:nowrap;line-height:1.5;" '
+                    f'title="{dot["event"]} {dot["label"]} {dot["date"]}">'
+                    f'{dot["event"]}<br>'
+                    f'<span style="font-weight:500;font-size:9px">{dot["label"]}</span><br>'
+                    f'<span style="font-weight:400;font-size:9px;opacity:.7">{dot["date"]}</span>'
+                    f'</div>'
+                )
+            cells += (
+                f'<div style="min-height:86px;border-left:1px solid rgba(229,231,235,0.7);'
+                f'padding:6px 3px;display:flex;flex-direction:column;'
+                f'justify-content:center;align-items:center">{inner}</div>'
+            )
+
+        rows_html += (
+            f'<div style="display:grid;grid-template-columns:200px 1fr;'
+            f'min-height:86px;border-bottom:1px solid #e5e7eb;cursor:pointer;'
+            f'transition:background .12s;" '
+            f'onmouseover="this.style.background=\'#f5f9ff\'" '
+            f'onmouseout="this.style.background=\'\'">'
+            f'<div style="padding:12px 14px;border-right:1px solid #e5e7eb;'
+            f'background:#fcfcfd;{left_border}">'
+            f'<div style="font-size:14px;font-weight:700;color:#111827;margin-bottom:3px">{car}</div>'
+            f'<div style="font-size:11px;color:#6b7280;line-height:1.6">{events_str}</div>'
+            f'<div style="font-size:11px;color:#9ca3af;margin-top:2px">{owners_str}</div>'
+            f'</div>'
+            f'<div style="display:grid;grid-template-columns:repeat(8,1fr);'
+            f'background:repeating-linear-gradient(to right,#fff,#fff calc(12.5% - 1px),'
+            f'#f9fafb calc(12.5% - 1px),#f9fafb 12.5%)">'
+            f'{cells}</div></div>'
+        )
+
+    if not rows_html:
+        rows_html = (
+            '<div style="padding:32px;text-align:center;color:#9ca3af;font-size:13px">'
+            '이 기간에 표시할 일정이 없습니다</div>'
+        )
+
+    scale_divs = "".join(
+        f'<div style="text-align:center;padding:10px 0;border-left:1px solid #e5e7eb;'
+        f'font-size:11px;font-weight:700;color:#6b7280">{label}</div>'
+        for label in scale_labels
+    )
+
+    # 범례
+    legend = "".join(
+        f'<span style="display:inline-flex;align-items:center;gap:4px;'
+        f'margin-right:12px;font-size:11px;color:#374151">'
+        f'<span style="width:10px;height:10px;border-radius:50%;background:{COLOR_MAP[dk]};'
+        f'display:inline-block"></span>{DATE_LABELS[dk]}</span>'
+        for dk in DATE_KEYS
+    )
+
+    return (
+        f'<div style="font-family:Arial,\'Malgun Gothic\',sans-serif;'
+        f'border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;background:#fff;">'
+        # 범례
+        f'<div style="padding:8px 14px;background:#fafafa;border-bottom:1px solid #e5e7eb;'
+        f'display:flex;align-items:center;flex-wrap:wrap;gap:4px">{legend}'
+        f'<span style="margin-left:auto;font-size:10px;color:#9ca3af">확정됨 = 파란 왼쪽 테두리</span>'
+        f'</div>'
+        # 헤더
+        f'<div style="display:grid;grid-template-columns:200px 1fr;'
+        f'background:#f9fafb;border-bottom:1px solid #e5e7eb">'
+        f'<div style="padding:10px 14px;font-size:11px;font-weight:700;color:#374151">'
+        f'차종 / 이벤트 / 담당</div>'
+        f'<div style="display:grid;grid-template-columns:repeat(8,1fr)">{scale_divs}</div>'
+        f'</div>'
+        # 행
+        f'{rows_html}'
+        f'</div>'
+    )
 
 
 def candidates_to_html(candidates: list) -> str:
@@ -554,20 +751,25 @@ with left_col:
             _m = _img_re.match(_t.strip())
             if _m:
                 _images.append({"mime": _m.group(1), "b64": _m.group(2)})
+            elif _t.startswith("[") and "실패" in _t:
+                st.warning(f"{_n}: {_t}")
             else:
                 _texts.append(f"[{_n}]\n{_t}")
+
         combined = "\n\n".join(_texts)
-        st.session_state.relay_req = {
-            "request_id":    str(uuid.uuid4()),
-            "engine":        engine,
-            "api_key":       api_key,
-            "model":         model,
-            "system_prompt": "당신은 일정 정보를 추출하는 전문가입니다. JSON 배열로만 답변하세요.",
-            "user_message":  EXTRACT_PROMPT.format(text=combined[:12000]),
-            "images":        _images,
-        }
-        st.session_state.relay_images = _images
-        st.session_state.relay_res = None
+        if combined or _images:
+            st.session_state.relay_req = {
+                "request_id":    str(uuid.uuid4()),
+                "engine":        engine,
+                "api_key":       api_key,
+                "model":         model,
+                "system_prompt": "당신은 일정 정보를 추출하는 전문가입니다. JSON 배열로만 답변하세요.",
+                "user_message":  EXTRACT_PROMPT.format(text=combined[:12000]),
+                "images":        _images,
+            }
+            st.session_state.relay_res = None
+        else:
+            st.warning("추출 가능한 내용이 없습니다.")
 
     req = st.session_state.relay_req
     if req:
@@ -698,73 +900,17 @@ with right_col:
             st.session_state.jira_field_map = {}
             st.rerun()
 
-    # 빅 간트 (차종별 1라인)
-    if not PLOTLY_OK:
-        st.warning("`pip install plotly` 필요")
-    elif not st.session_state.candidates:
+    # 빅 간트 — 커스텀 HTML (UI예시 스타일)
+    _, last2  = calendar.monthrange(next_m.year, next_m.month)
+    range_end = next_m.replace(day=last2)
+
+    if not st.session_state.candidates:
         st.info("파일을 업로드하고 AI 추출을 실행하면 타임라인이 표시됩니다.")
     else:
-        _, last2  = calendar.monthrange(next_m.year, next_m.month)
-        range_end = next_m.replace(day=last2)
-
-        tl_rows = []
-        for c in st.session_state.candidates:
-            for dk in DATE_KEYS:
-                dval = (c.get("dates") or {}).get(dk)
-                if not dval:
-                    continue
-                try:
-                    dt = datetime.strptime(dval, "%Y-%m-%d").date()
-                except (ValueError, TypeError):
-                    continue
-                if cur_m <= dt <= range_end:
-                    tl_rows.append({
-                        "차종":    c.get("car_type", ""),
-                        "이벤트":  c.get("event", ""),
-                        "담당자":  c.get("owner", ""),
-                        "일정구분": DATE_LABELS[dk],
-                        "시작":    dval,
-                        "종료":    dval,
-                    })
-
-        if tl_rows:
-            df_tl = pd.DataFrame(tl_rows)
-            df_tl["시작"] = pd.to_datetime(df_tl["시작"])
-            df_tl["종료"] = pd.to_datetime(df_tl["종료"]) + pd.Timedelta(days=1)
-            color_map = {v: COLOR_MAP[k] for k, v in DATE_LABELS.items()}
-
-            fig = px.timeline(
-                df_tl, x_start="시작", x_end="종료",
-                y="차종", color="일정구분",
-                hover_data={"이벤트": True, "담당자": True},
-                color_discrete_map=color_map,
-            )
-            fig.update_yaxes(autorange="reversed")
-            fig.update_xaxes(
-                range=[str(cur_m), str(range_end)],
-                tickformat="%m/%d", dtick="D3",
-            )
-            n_cars = len({r["차종"] for r in tl_rows})
-            fig.update_layout(
-                height=max(200, n_cars * 55 + 100),
-                margin=dict(l=10, r=10, t=10, b=10),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            )
-            try:
-                event = st.plotly_chart(
-                    fig, use_container_width=True,
-                    on_select="rerun", key="timelineRows",
-                )
-                if (event and hasattr(event, "selection")
-                        and event.selection and event.selection.points):
-                    car = str(event.selection.points[0].get("y") or "").strip()
-                    if car:
-                        st.session_state.selected_car = car
-                        st.toast(f"'{car}' 선택 — JIRA 조회 중...")
-            except TypeError:
-                st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info(f"{cur_m.strftime('%Y-%m')} ~ {next_m.strftime('%Y-%m')} 범위에 일정이 없습니다.")
+        n_cars    = len({c.get("car_type","") for c in st.session_state.candidates if c.get("car_type")})
+        tl_height = max(260, n_cars * 100 + 120)
+        tl_html   = build_timeline_html(st.session_state.candidates, cur_m, range_end)
+        st.html(f'<div style="height:{tl_height}px;overflow-y:auto">{tl_html}</div>')
 
     st.divider()
 

@@ -1,0 +1,1941 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>차종 게이트 일정 관리 App</title>
+  <style>
+    @font-face {
+      font-family: "Hyundai Sans Text Pro";
+      src: url("./fonts/HyundaiSansTextPro-Regular.woff2") format("woff2"),
+           url("./fonts/HyundaiSansTextPro-Regular.woff") format("woff");
+      font-weight: 400;
+      font-style: normal;
+    }
+
+    @font-face {
+      font-family: "Hyundai Sans Text Pro";
+      src: url("./fonts/HyundaiSansTextPro-Medium.woff2") format("woff2"),
+           url("./fonts/HyundaiSansTextPro-Medium.woff") format("woff");
+      font-weight: 500;
+      font-style: normal;
+    }
+
+    @font-face {
+      font-family: "Hyundai Sans Text Pro";
+      src: url("./fonts/HyundaiSansTextPro-Bold.woff2") format("woff2"),
+           url("./fonts/HyundaiSansTextPro-Bold.woff") format("woff");
+      font-weight: 700;
+      font-style: normal;
+    }
+
+    :root{
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --panel-soft: #fbfcfe;
+      --line: #e5e7eb;
+      --line-2: #eef2f7;
+      --text: #111827;
+      --text-2: #374151;
+      --text-3: #6b7280;
+      --blue: #2563eb;
+      --blue-soft: #eff6ff;
+      --green: #16a34a;
+      --green-soft: #ecfdf3;
+      --orange: #ea580c;
+      --orange-soft: #fff7ed;
+      --red: #dc2626;
+      --red-soft: #fef2f2;
+      --shadow: 0 1px 2px rgba(16,24,40,0.04), 0 8px 24px rgba(16,24,40,0.06);
+      --radius-xl: 20px;
+      --radius-lg: 16px;
+      --radius-md: 12px;
+      --radius-sm: 10px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Hyundai Sans Text Pro", "Segoe UI", "Malgun Gothic", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    .topbar {
+      height: 64px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      position: sticky;
+      top: 0;
+      z-index: 30;
+    }
+
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #2563eb, #60a5fa);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    .title-block h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status {
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--text-2);
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .gear-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: #fff;
+      font-size: 15px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .main {
+      display: grid;
+      grid-template-columns: minmax(720px, 1fr) 500px;
+      gap: 16px;
+      padding: 16px;
+      height: calc(100vh - 64px - 26px); /* topbar 64px + statusbar 26px */
+      overflow: hidden;
+    }
+
+    .left-stack {
+      display: grid;
+      grid-template-rows: 360px 1fr;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow);
+      overflow: auto;
+      min-width: 0;
+    }
+
+    .panel-inner {
+      padding: 16px;
+    }
+
+    .panel h2 {
+      margin: 0 0 8px 0;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .panel-desc {
+      font-size: 13px;
+      color: var(--text-3);
+      line-height: 1.7;
+      margin-bottom: 14px;
+      font-weight: 400;
+    }
+
+    .section-title {
+      margin: 14px 0 10px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: var(--text-3);
+      text-transform: uppercase;
+    }
+
+    .dropzone {
+      border: 1.5px dashed #bfdbfe;
+      background: #f8fbff;
+      border-radius: 14px;
+      padding: 18px 14px;
+      text-align: center;
+      color: var(--text-3);
+      margin-bottom: 12px;
+    }
+
+    .dropzone strong {
+      display: block;
+      color: var(--text);
+      font-size: 14px;
+      margin-bottom: 6px;
+      font-weight: 700;
+    }
+
+    .input-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.45fr;
+      gap: 14px;
+      align-items: start;
+    }
+
+    .box {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      overflow: hidden;
+      background: var(--panel-soft);
+    }
+
+    .box-head {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      background: #fafafa;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-2);
+    }
+
+    .box-content {
+      max-height: 260px;
+      overflow: auto;
+    }
+
+    .source-item,
+    .candidate-item,
+    .schedule-item {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line-2);
+      transition: 0.12s ease;
+    }
+
+    .source-item:last-child,
+    .candidate-item:last-child,
+    .schedule-item:last-child {
+      border-bottom: none;
+    }
+
+    .source-item {
+      cursor: pointer;
+    }
+
+    .source-item:hover,
+    .schedule-item:hover {
+      background: #f9fbfd;
+    }
+
+    .source-item.selected,
+    .schedule-item.selected {
+      background: #f5f9ff;
+      box-shadow: inset 3px 0 0 var(--blue);
+    }
+
+    .source-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .source-left {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .source-title,
+    .schedule-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+
+    .small {
+      font-size: 12px;
+      color: var(--text-3);
+      line-height: 1.7;
+      font-weight: 400;
+    }
+
+    .close-btn {
+      width: 26px;
+      height: 26px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text-3);
+      font-size: 14px;
+      line-height: 1;
+      cursor: pointer;
+      flex: 0 0 auto;
+      font-family: inherit;
+    }
+
+    .close-btn:hover {
+      color: var(--red);
+      background: var(--red-soft);
+      border-color: #fecaca;
+    }
+
+    /* candidate card */
+    .candidate-card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #fff;
+      padding: 12px;
+    }
+
+    .candidate-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .candidate-select {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-2);
+      font-weight: 700;
+    }
+
+    .candidate-select input {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--blue);
+    }
+
+    .candidate-head-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .mini-field label,
+    .fact-field label {
+      display: block;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-3);
+      margin-bottom: 4px;
+    }
+
+    .mini-field input,
+    .mini-field select,
+    .fact-field input,
+    .fact-field select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 12px;
+      background: #fff;
+      color: var(--text);
+      outline: none;
+      font-family: inherit;
+      font-weight: 400;
+    }
+
+    .mini-field input:focus,
+    .mini-field select:focus,
+    .fact-field input:focus,
+    .fact-field select:focus {
+      border-color: #93c5fd;
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.10);
+    }
+
+    .fact-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .fact-row {
+      display: grid;
+      grid-template-columns: 180px 1fr 26px;
+      gap: 8px;
+      align-items: end;
+    }
+
+    .fact-add-row {
+      margin-top: 10px;
+    }
+
+    .add-fact-btn {
+      border: 1px dashed #cbd5e1;
+      background: #f8fafc;
+      color: #475569;
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text-2);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .btn.primary {
+      background: var(--blue);
+      border-color: var(--blue);
+      color: white;
+      font-weight: 700;
+    }
+
+    .btn.primary:disabled {
+      background: #d1d5db;
+      border-color: #d1d5db;
+      color: #6b7280;
+      cursor: not-allowed;
+    }
+
+    .toolbar-inline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    .month-nav {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .nav-btn,
+    .month-badge {
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: #fff;
+      padding: 0 12px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-2);
+      font-family: inherit;
+    }
+
+    .nav-btn {
+      cursor: pointer;
+    }
+
+    .timeline-shell {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .timeline-head {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      background: #fafafa;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .th-left, .th-right {
+      padding: 12px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-2);
+    }
+
+    .time-scale {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+    }
+
+    .time-scale div {
+      text-align: center;
+      padding: 10px 0;
+      border-left: 1px solid var(--line-2);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-3);
+    }
+
+    .timeline-row {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      min-height: 86px;
+      border-bottom: 1px solid var(--line-2);
+      cursor: pointer;
+      transition: 0.12s ease;
+    }
+
+    .timeline-row:hover {
+      background: #fafcff;
+    }
+
+    .timeline-row.selected {
+      background: #f5f9ff;
+      box-shadow: inset 3px 0 0 var(--blue);
+    }
+
+    .row-info {
+      padding: 12px 14px;
+      border-right: 1px solid var(--line-2);
+      background: #fcfcfd;
+    }
+
+    .row-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+
+    .row-sub {
+      font-size: 12px;
+      color: var(--text-3);
+      line-height: 1.6;
+      font-weight: 400;
+    }
+
+    .row-tags {
+      margin-top: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+      font-size: 11px;
+      color: var(--text-3);
+      font-weight: 700;
+    }
+
+    .row-track {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      background:
+        repeating-linear-gradient(
+          to right,
+          #ffffff,
+          #ffffff calc(12.5% - 1px),
+          #f3f4f6 calc(12.5% - 1px),
+          #f3f4f6 12.5%
+        );
+    }
+
+    .track-cell {
+      min-height: 86px;
+      border-left: 1px solid rgba(243,244,246,0.9);
+    }
+
+    .lane {
+      position: absolute;
+      top: 40px;
+      height: 4px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #93c5fd, #2563eb);
+    }
+
+    .lane.green { background: linear-gradient(90deg, #86efac, #16a34a); }
+    .lane.orange { background: linear-gradient(90deg, #fdba74, #ea580c); }
+    .lane.purple { background: linear-gradient(90deg, #c4b5fd, #7c3aed); }
+    .lane.estimated { background: linear-gradient(90deg, #d1d5db, #6b7280); }
+
+    .marker {
+      position: absolute;
+      top: 31px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 2px solid #fff;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.10);
+    }
+
+    .submit { background: #2563eb; }
+    .meeting { background: #16a34a; }
+    .premeeting { background: #7c3aed; }
+    .report { background: #ea580c; }
+    .estimated { background: #6b7280; }
+
+    .label {
+      position: absolute;
+      top: 52px;
+      transform: translateX(-34%);
+      background: rgba(255,255,255,0.92);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-size: 10px;
+      font-weight: 700;
+      color: #6b7280;
+      padding: 2px 5px;
+      white-space: nowrap;
+    }
+
+    .filter-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+
+    .check {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-2);
+      font-weight: 500;
+      user-select: none;
+      cursor: pointer;
+    }
+
+    .check input {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--blue);
+    }
+
+    .grid-shell {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      overflow: hidden;
+      background: #fff;
+      margin-bottom: 14px;
+    }
+
+    .grid-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .grid-table th,
+    .grid-table td {
+      border-bottom: 1px solid var(--line-2);
+      padding: 10px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .grid-table th {
+      background: #fafafa;
+      color: var(--text-2);
+      font-weight: 700;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    .grid-table tbody tr {
+      cursor: pointer;
+      transition: 0.12s ease;
+    }
+
+    .grid-table tbody tr:hover {
+      background: #fafcff;
+    }
+
+    .grid-table tbody tr.selected {
+      background: #f5f9ff;
+    }
+
+    .grid-key {
+      color: var(--blue);
+      font-weight: 700;
+    }
+
+    .badge-cell {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      background: #f3f4f6;
+      color: #4b5563;
+    }
+
+    .badge-cell.approval {
+      background: var(--green-soft);
+      color: var(--green);
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(17,24,39,0.30);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      padding: 18px;
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    .modal {
+      width: min(900px, 96vw);
+      max-height: 90vh;
+      overflow: auto;
+      background: #fff;
+      border-radius: 20px;
+      border: 1px solid var(--line);
+      box-shadow: 0 20px 50px rgba(17,24,39,0.18);
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 18px 20px 14px 20px;
+      border-bottom: 1px solid var(--line);
+      position: sticky;
+      top: 0;
+      background: rgba(255,255,255,0.95);
+      z-index: 1;
+    }
+
+    .modal-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .modal-body {
+      padding: 18px 20px 20px 20px;
+    }
+
+    .form-grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .field {
+      margin-bottom: 12px;
+    }
+
+    .field label {
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-2);
+      margin-bottom: 6px;
+    }
+
+    .field input,
+    .field select,
+    .field textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      font-weight: 400;
+    }
+
+    .field input:focus,
+    .field select:focus,
+    .field textarea:focus {
+      border-color: #93c5fd;
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.10);
+    }
+
+    .footer-note {
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--text-3);
+      line-height: 1.7;
+    }
+
+    /* ── Design Note Banner ───────────────────────────── */
+    .design-note {
+      background: linear-gradient(90deg, #fffbeb 0%, #fefce8 100%);
+      border-bottom: 1px solid #fde68a;
+      padding: 0;
+      overflow: hidden;
+      transition: max-height 0.25s ease;
+      max-height: 120px;
+    }
+    .design-note.collapsed {
+      max-height: 0;
+      border-bottom: none;
+    }
+    .design-note-inner {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 8px 18px;
+    }
+    .design-note-icon {
+      font-size: 16px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .design-note-body {
+      flex: 1;
+      min-width: 0;
+    }
+    .design-note-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #92400e;
+      margin-bottom: 3px;
+      letter-spacing: 0.02em;
+    }
+    .design-note-text {
+      font-size: 11px;
+      color: #78350f;
+      line-height: 1.65;
+    }
+    .design-note-text b { color: #92400e; }
+    .design-note-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+      align-self: center;
+    }
+    .note-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid #fcd34d;
+      background: rgba(255,255,255,0.6);
+      font-size: 10px;
+      font-weight: 700;
+      color: #92400e;
+      white-space: nowrap;
+    }
+    .note-close {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      border: 1px solid #fcd34d;
+      background: rgba(255,255,255,0.5);
+      color: #92400e;
+      font-size: 13px;
+      cursor: pointer;
+      font-family: inherit;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .note-close:hover { background: #fef9c3; }
+    .note-toggle-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 18px;
+      background: #fef3c7;
+      border-bottom: 1px solid #fde68a;
+      cursor: pointer;
+      font-size: 10px;
+      font-weight: 700;
+      color: #b45309;
+      user-select: none;
+    }
+    .note-toggle-bar:hover { background: #fde68a; }
+
+    /* ── Status Bar ───────────────────────────────────── */
+    .statusbar {
+      height: 26px;
+      background: #1e293b;
+      border-top: 1px solid #0f172a;
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      gap: 0;
+      flex-shrink: 0;
+      position: sticky;
+      bottom: 0;
+      z-index: 30;
+    }
+    .sb-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 0 10px;
+      border-right: 1px solid #334155;
+      font-size: 11px;
+      color: #94a3b8;
+      white-space: nowrap;
+    }
+    .sb-item:first-child { padding-left: 0; }
+    .sb-item:last-child { border-right: none; }
+    .sb-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .sb-dot.ok    { background: #22c55e; }
+    .sb-dot.warn  { background: #f59e0b; }
+    .sb-dot.err   { background: #ef4444; }
+    .sb-dot.idle  { background: #475569; }
+    .sb-msg {
+      flex: 1;
+      padding: 0 10px;
+      font-size: 11px;
+      color: #cbd5e1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sb-time {
+      font-size: 10px;
+      color: #475569;
+      margin-left: auto;
+      padding-left: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+
+    <div class="topbar">
+      <div class="topbar-left">
+        <div class="logo">FS</div>
+        <div class="title-block">
+          <h1>차종 게이트 일정 관리 App</h1>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <div class="status">Confluence 연결됨</div>
+        <div class="status">ADE Jira 연결됨</div>
+        <button class="gear-btn" onclick="openSettingsModal()">⚙</button>
+      </div>
+    </div>
+
+    <!-- ── DESIGN NOTE BANNER ────────────────────────── -->
+    <div class="design-note" id="designNote">
+      <div class="design-note-inner">
+        <div class="design-note-icon">💡</div>
+        <div class="design-note-body">
+          <div class="design-note-title">[ UI 샘플 안내 — 설계 가이드라인 ]</div>
+          <div class="design-note-text">
+            이 화면은 App 이해를 돕기 위한 <b>샘플 UI</b>이며, 더 나은 구성이 있을 경우 자유롭게 적용하세요. &nbsp;|&nbsp;
+            <b>스크롤 최소화</b> 권장 — 가급적 모든 정보가 한 화면 안에 표시되도록 레이아웃을 구성하세요. &nbsp;|&nbsp;
+            각 Section은 <b>Resize 또는 Hide / Show</b> 기능을 지원하는 것이 바람직합니다. &nbsp;|&nbsp;
+            하단의 <b>Status Bar</b>를 활용해 주요 처리 상태(연결, 추출, 반영, 오류 등)를 상시 확인할 수 있도록 설계하세요.
+          </div>
+        </div>
+        <div class="design-note-actions">
+          <span class="note-pill">📐 Resize 권장</span>
+          <span class="note-pill">🙈 Hide/Show</span>
+          <span class="note-pill">📊 Status Bar</span>
+          <button class="note-close" onclick="collapseNote()" title="접기">×</button>
+        </div>
+      </div>
+    </div>
+    <div class="note-toggle-bar" id="noteToggleBar" style="display:none;" onclick="expandNote()">
+      ▶ &nbsp;UI 샘플 안내 / 설계 가이드라인 보기
+    </div>
+    <!-- ──────────────────────────────────────────────── -->
+
+    <div class="main">
+
+      <!-- LEFT -->
+      <div class="left-stack">
+
+        <!-- INPUT -->
+        <div class="panel">
+          <div class="panel-inner">
+            <h2>입력</h2>
+            <div class="panel-desc">
+              입력자료를 선택하면 해당 입력자료에 대응되는 일정 추출 후보가 표시됩니다.
+            </div>
+
+            <div class="dropzone">
+              <strong>파일 또는 텍스트를 여기로 드래그하세요</strong>
+              Email / PDF / JPG / PNG / Text / Excel 지원
+            </div>
+
+            <div class="input-grid">
+              <!-- INPUT FILES -->
+              <div>
+                <div class="section-title">입력자료</div>
+                <div class="box">
+                  <div class="box-head">입력자료 목록</div>
+                  <div class="box-content" id="sourceList"></div>
+                </div>
+              </div>
+
+              <!-- CANDIDATES -->
+              <div>
+                <div class="section-title">선택된 입력자료별 일정 추출 후보</div>
+                <div class="box">
+                  <div class="box-head">수정/선택 가능한 후보 목록</div>
+                  <div class="box-content" id="previewList"></div>
+                </div>
+
+                <div class="btn-row">
+                  <button class="btn primary" id="confirmBtn" disabled>선택된 항목 Confluence 반영</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TIMELINE -->
+        <div class="panel">
+          <div class="panel-inner">
+            <div class="toolbar-inline">
+              <div>
+                <h2>차종 게이트 이벤트 타임라인</h2>
+                <div class="panel-desc" style="margin-bottom:0;">
+                  차종 클릭 시, 우측의 Jira 조회가 연동됩니다
+                </div>
+              </div>
+
+              <div class="month-nav">
+                <button class="nav-btn" id="refreshTimelineBtn">새로고침</button>
+                <button class="nav-btn" id="prevMonthBtn">이전 월</button>
+                <div class="month-badge" id="monthLabel">2026년 7월 ~ 8월</div>
+                <button class="nav-btn" id="nextMonthBtn">다음 월</button>
+              </div>
+            </div>
+
+            <div class="timeline-shell">
+              <div class="timeline-head">
+                <div class="th-left">차종 / 이벤트 / 담당</div>
+                <div class="th-right">
+                  <div class="time-scale" id="timeScale"></div>
+                </div>
+              </div>
+              <div id="timelineRows"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- RIGHT -->
+      <div class="panel">
+        <div class="panel-inner">
+          <h2 id="rightPanelTitle">월별 이벤트 조회 - 2026년 7월</h2>
+          <div class="panel-desc">
+            특정 차종을 선택하면 관련 Jira가 조회됩니다.
+          </div>
+
+          <div class="box" style="margin-bottom:14px;">
+            <div class="box-content" id="scheduleList"></div>
+          </div>
+
+          <div class="section-title">Jira 조회</div>
+          <div class="filter-row">
+            <div class="small" id="gridTitle">선택 차종: BO4 / GATE-3</div>
+            <label class="check">
+              <input type="checkbox" id="myTicketsOnly" onchange="renderGrid()" />
+              나에게 할당된 티켓
+            </label>
+          </div>
+
+          <div class="grid-shell">
+            <table class="grid-table">
+              <thead>
+                <tr>
+                  <th>Key</th>
+                  <th>단계</th>
+                  <th>점검유형</th>
+                  <th>시스템</th>
+                  <th>상태</th>
+                  <th>담당자</th>
+                  <th>최근 업데이트</th>
+                </tr>
+              </thead>
+              <tbody id="jiraGridBody"></tbody>
+            </table>
+          </div>
+
+          <div class="footer-note">
+            JIRA 티켓 행을 <strong>더블클릭</strong>하면 상세보기 모달이 열립니다.
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── STATUS BAR ──────────────────────────────────── -->
+    <div class="statusbar">
+      <div class="sb-item">
+        <div class="sb-dot ok" id="sbCfDot"></div>
+        <span id="sbCfLabel">Confluence 연결됨</span>
+      </div>
+      <div class="sb-item">
+        <div class="sb-dot ok" id="sbJiraDot"></div>
+        <span id="sbJiraLabel">JIRA 연결됨</span>
+      </div>
+      <div class="sb-item">
+        <div class="sb-dot idle" id="sbAiDot"></div>
+        <span id="sbAiLabel">AI 대기</span>
+      </div>
+      <div class="sb-item">
+        <div class="sb-dot idle" id="sbSyncDot"></div>
+        <span id="sbSyncLabel">미반영 항목 없음</span>
+      </div>
+      <div class="sb-msg" id="sbMsg">준비 완료 — 파일을 드래그하거나 차종을 선택하세요.</div>
+      <div class="sb-time" id="sbTime"></div>
+    </div>
+    <!-- ──────────────────────────────────────────────── -->
+
+  </div>
+
+  <!-- JIRA DETAIL MODAL -->
+  <div class="modal-backdrop" id="detailModal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Jira 상세보기 / 결과 업데이트</div>
+        <button class="close-btn" onclick="closeModal('detailModal')">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid-2">
+          <div class="field">
+            <label>JIRA Key</label>
+            <input id="m_key" type="text" />
+          </div>
+          <div class="field">
+            <label>프로젝트</label>
+            <input id="m_project" type="text" value="VDPGTINSP" />
+          </div>
+        </div>
+
+        <div class="form-grid-2">
+          <div class="field">
+            <label>차종</label>
+            <input id="m_car" type="text" />
+          </div>
+          <div class="field">
+            <label>단계</label>
+            <input id="m_stage" type="text" />
+          </div>
+        </div>
+
+        <div class="form-grid-2">
+          <div class="field">
+            <label>점검유형</label>
+            <input id="m_checktype" type="text" />
+          </div>
+          <div class="field">
+            <label>시스템</label>
+            <input id="m_system" type="text" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Summary</label>
+          <input id="m_summary" type="text" />
+        </div>
+
+        <div class="form-grid-2">
+          <div class="field">
+            <label>Status</label>
+            <select id="m_status">
+              <option>To Do</option>
+              <option>Approval</option>
+              <option>Done</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Priority</label>
+            <select id="m_priority">
+              <option>Normal</option>
+              <option>A</option>
+              <option>Top</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Assignee</label>
+          <input id="m_assignee" type="text" />
+        </div>
+
+        <div class="form-grid-2">
+          <div class="field">
+            <label>최근 업데이트</label>
+            <input id="m_updated" type="text" />
+          </div>
+          <div class="field">
+            <label>Issue Type</label>
+            <input id="m_type" type="text" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label>점검결과 URL</label>
+          <input type="text" placeholder="Confluence 또는 점검 결과 URL 입력" />
+        </div>
+
+        <div class="field">
+          <label>첨부/결과 파일</label>
+          <input type="text" placeholder="파일 지정 또는 클립보드 붙여넣기 경로" />
+        </div>
+
+        <div class="field">
+          <label>결과 메모</label>
+          <textarea rows="6" placeholder="기능안전 점검 결과, 주요 이슈, 후속 조치 내용을 입력하세요"></textarea>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn" onclick="closeModal('detailModal')">닫기</button>
+          <button class="btn primary">JIRA 업데이트</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SETTINGS MODAL -->
+  <div class="modal-backdrop" id="settingsModal">
+    <div class="modal" style="width:min(760px, 96vw);">
+      <div class="modal-header">
+        <div class="modal-title">설정</div>
+        <button class="close-btn" onclick="closeModal('settingsModal')">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="section-title" style="margin-top:0;">JIRA 설정</div>
+        <div class="form-grid-2">
+          <div class="field">
+            <label>JIRA Base URL</label>
+            <input type="text" placeholder="https://ade-jira.hmckmc.co.kr" />
+          </div>
+          <div class="field">
+            <label>Project Key</label>
+            <input type="text" placeholder="VDPGTINSP" />
+          </div>
+        </div>
+        <div class="field">
+          <label>JIRA Token</label>
+          <input type="password" placeholder="토큰 입력" />
+        </div>
+
+        <div class="section-title">Confluence 설정</div>
+        <div class="form-grid-2">
+          <div class="field">
+            <label>Confluence Base URL</label>
+            <input type="text" placeholder="https://hmg.atlassian.net/wiki" />
+          </div>
+          <div class="field">
+            <label>Space / Page</label>
+            <input type="text" placeholder="Space Key 또는 Page URL" />
+          </div>
+        </div>
+        <div class="field">
+          <label>Confluence Token</label>
+          <input type="password" placeholder="토큰 입력" />
+        </div>
+
+        <div class="section-title">H-CHAT 설정</div>
+        <div class="field">
+          <label>H-CHAT API Key</label>
+          <input type="password" placeholder="API Key 입력" />
+        </div>
+
+        <div class="btn-row">
+          <button class="btn" onclick="closeModal('settingsModal')">닫기</button>
+          <button class="btn primary">설정 저장</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ── Design Note Banner ─────────────────────────── */
+    function collapseNote() {
+      document.getElementById('designNote').classList.add('collapsed');
+      document.getElementById('noteToggleBar').style.display = 'flex';
+    }
+    function expandNote() {
+      document.getElementById('designNote').classList.remove('collapsed');
+      document.getElementById('noteToggleBar').style.display = 'none';
+    }
+
+    /* ── Status Bar ─────────────────────────────────── */
+    function updateSbTime() {
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2,'0');
+      const mm = String(now.getMinutes()).padStart(2,'0');
+      const ss = String(now.getSeconds()).padStart(2,'0');
+      document.getElementById('sbTime').textContent = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}  ${hh}:${mm}:${ss}`;
+    }
+    updateSbTime();
+    setInterval(updateSbTime, 1000);
+
+    function setStatus(area, state, label, msg) {
+      /* area: 'Cf' | 'Jira' | 'Ai' | 'Sync'
+         state: 'ok' | 'warn' | 'err' | 'idle' */
+      const dot = document.getElementById(`sb${area}Dot`);
+      const lbl = document.getElementById(`sb${area}Label`);
+      dot.className = `sb-dot ${state}`;
+      if (label) lbl.textContent = label;
+      if (msg)   document.getElementById('sbMsg').textContent = msg;
+    }
+    /* ─────────────────────────────────────────────── */
+
+    const MY_ASSIGNEE = "김연호 책임연구원 / 기능안전검증팀";
+    let currentMonthIndex = 7;
+
+    const FACT_OPTIONS = [
+      "제출요청",
+      "제출요청(예상)",
+      "실무회의",
+      "예비회의",
+      "본회의"
+    ];
+
+    const monthWindows = [
+      { startMonth: 6, titleMonth: "2026년 6월", label: "2026년 6월 ~ 7월", scale: ["6/1","6/8","6/15","6/22","6/29","7/6","7/13","7/20"] },
+      { startMonth: 7, titleMonth: "2026년 7월", label: "2026년 7월 ~ 8월", scale: ["7/1","7/8","7/15","7/22","7/29","8/5","8/12","8/19"] },
+      { startMonth: 8, titleMonth: "2026년 8월", label: "2026년 8월 ~ 9월", scale: ["8/1","8/8","8/15","8/22","8/29","9/5","9/12","9/19"] },
+      { startMonth: 9, titleMonth: "2026년 9월", label: "2026년 9월 ~ 10월", scale: ["9/1","9/8","9/15","9/22","9/29","10/6","10/13","10/20"] }
+    ];
+
+    let sourceItems = [
+      {
+        id: "s1",
+        name: "월간 GATE 공지.msg",
+        desc: "차종별 요청기한 / 이벤트 / 담당 / 가까운 보고 일정 포함",
+        candidates: [
+          {
+            id: "c1",
+            checked: true,
+            car: "BO4",
+            event: "GATE-3",
+            owner: "이충환",
+            facts: [
+              { id: "f1", type: "제출요청", value: "2026-07-15" },
+              { id: "f2", type: "실무회의", value: "2026-07-24" },
+              { id: "f3", type: "예비회의", value: "2026-07-29" },
+              { id: "f4", type: "본회의", value: "2026-07-31" }
+            ]
+          },
+          {
+            id: "c2",
+            checked: false,
+            car: "CN8",
+            event: "P2",
+            owner: "강현구",
+            facts: [
+              { id: "f5", type: "제출요청", value: "2026-07-15" },
+              { id: "f6", type: "본회의", value: "2026-07-30" }
+            ]
+          }
+        ]
+      },
+      {
+        id: "s2",
+        name: "gate_master.xlsx",
+        desc: "차종별 Gate 일정 참조 시트",
+        candidates: [
+          {
+            id: "c3",
+            checked: true,
+            car: "NQ6",
+            event: "GATE-5",
+            owner: "이충환",
+            facts: [
+              { id: "f7", type: "제출요청", value: "2026-08-14" },
+              { id: "f8", type: "실무회의", value: "2026-08-24" },
+              { id: "f9", type: "예비회의", value: "2026-08-29" },
+              { id: "f10", type: "본회의", value: "2026-09-03" }
+            ]
+          }
+        ]
+      },
+      {
+        id: "s3",
+        name: "본회의 일정 정리.pdf",
+        desc: "본회의 일정만 포함된 참고자료",
+        candidates: [
+          {
+            id: "c4",
+            checked: true,
+            car: "NE2",
+            event: "GATE-3",
+            owner: "강현구",
+            facts: [
+              { id: "f11", type: "제출요청(예상)", value: "2026-09-23" },
+              { id: "f12", type: "본회의", value: "2026-10-23" }
+            ]
+          }
+        ]
+      }
+    ];
+
+    let selectedSourceId = "s1";
+
+    const timelineData = {
+      "BO4|GATE-3": {
+        schedule: {
+          title: "BO4 / GATE-3",
+          meta: "담당: 이충환 · 제출요청 → 실무회의 → 예비회의 → 본회의",
+          month: 7
+        },
+        events: [
+          { type: "submit", label: "제출요청", pos: 18 },
+          { type: "meeting", label: "실무회의", pos: 34 },
+          { type: "premeeting", label: "예비회의", pos: 48 },
+          { type: "report", label: "본회의", pos: 62 }
+        ],
+        tickets: [
+          {
+            key: "VDPGTINSP-2601",
+            summary: "BO4 Gate-3 기능안전-사양점검-1 - MDPS(일반)",
+            car: "BO4",
+            stage: "GATE-3",
+            checkType: "사양점검-1",
+            system: "MDPS(일반)",
+            status: "To Do",
+            priority: "Normal",
+            assignee: MY_ASSIGNEE,
+            updated: "2026-07-19 09:20",
+            type: "Sub-task"
+          }
+        ]
+      },
+      "CN8|P2": {
+        schedule: {
+          title: "CN8 / P2",
+          meta: "담당: 강현구 · 일부 일정만 파악",
+          month: 7
+        },
+        events: [
+          { type: "submit", label: "제출요청", pos: 20 },
+          { type: "report", label: "본회의", pos: 58 }
+        ],
+        tickets: [
+          {
+            key: "VDPGTINSP-2458",
+            summary: "CN8 P2 안전성평가 - MDPS(일반)",
+            car: "CN8",
+            stage: "P2",
+            checkType: "안전성평가",
+            system: "MDPS(일반)",
+            status: "To Do",
+            priority: "Normal",
+            assignee: MY_ASSIGNEE,
+            updated: "2026-07-13 11:06",
+            type: "Sub-task"
+          }
+        ]
+      },
+      "NQ6|GATE-5": {
+        schedule: {
+          title: "NQ6 / GATE-5",
+          meta: "담당: 이충환 · 8~9월 구간",
+          month: 8
+        },
+        events: [
+          { type: "submit", label: "제출요청", pos: 20 },
+          { type: "meeting", label: "실무회의", pos: 40 },
+          { type: "premeeting", label: "예비회의", pos: 56 },
+          { type: "report", label: "본회의", pos: 72 }
+        ],
+        tickets: [
+          {
+            key: "VDPGTINSP-2484",
+            summary: "NQ6 Gate-5 기능안전-개발완성도-1 - MDPS(일반)",
+            car: "NQ6",
+            stage: "GATE-5",
+            checkType: "개발완성도-1",
+            system: "MDPS(일반)",
+            status: "To Do",
+            priority: "Normal",
+            assignee: MY_ASSIGNEE,
+            updated: "2026-07-13 15:38",
+            type: "Sub-task"
+          }
+        ]
+      },
+      "LW1|GATE-5": {
+        schedule: {
+          title: "LW1 / GATE-5",
+          meta: "담당: 이충환 · 일부 일정만 파악",
+          month: 9
+        },
+        events: [
+          { type: "meeting", label: "실무회의", pos: 50 },
+          { type: "report", label: "본회의", pos: 70 }
+        ],
+        tickets: [
+          {
+            key: "VDPGTINSP-2468",
+            summary: "LW1 Gate-5 기능안전-개발완성도-1 - MDPS(일반)",
+            car: "LW1",
+            stage: "GATE-5",
+            checkType: "개발완성도-1",
+            system: "MDPS(일반)",
+            status: "To Do",
+            priority: "Normal",
+            assignee: "타 담당자 / 기능안전검증팀",
+            updated: "2026-07-13 15:23",
+            type: "Sub-task"
+          }
+        ]
+      },
+      "NE2|GATE-3": {
+        schedule: {
+          title: "NE2 / GATE-3",
+          meta: "담당: 강현구 · 본회의만 파악됨",
+          month: 9
+        },
+        events: [
+          { type: "estimated", label: "제출요청(예상)", pos: 22 },
+          { type: "report", label: "본회의", pos: 70 }
+        ],
+        tickets: [
+          {
+            key: "VDPGTINSP-2701",
+            summary: "NE2 Gate-3 기능안전-사양점검-1 - IEB",
+            car: "NE2",
+            stage: "GATE-3",
+            checkType: "사양점검-1",
+            system: "IEB",
+            status: "To Do",
+            priority: "Normal",
+            assignee: MY_ASSIGNEE,
+            updated: "2026-07-20 08:30",
+            type: "Sub-task"
+          }
+        ]
+      }
+    };
+
+    const timelineOrder = ["BO4|GATE-3","CN8|P2","NQ6|GATE-5","LW1|GATE-5","NE2|GATE-3"];
+    let selectedKey = "BO4|GATE-3";
+    let selectedTicket = null;
+
+    function getSelectedSource() {
+      return sourceItems.find(x => x.id === selectedSourceId);
+    }
+
+    function renderSourceList() {
+      const wrap = document.getElementById("sourceList");
+      wrap.innerHTML = "";
+      sourceItems.forEach(item => {
+        const div = document.createElement("div");
+        div.className = "source-item" + (item.id === selectedSourceId ? " selected" : "");
+        div.onclick = () => {
+          selectedSourceId = item.id;
+          renderSourceList();
+          renderPreviewList();
+        };
+        div.innerHTML = `
+          <div class="source-row">
+            <div class="source-left">
+              <div class="source-title">${item.name}</div>
+              <div class="small">${item.desc}</div>
+            </div>
+            <button class="close-btn" onclick="event.stopPropagation(); deleteSource('${item.id}')">×</button>
+          </div>
+        `;
+        wrap.appendChild(div);
+      });
+    }
+
+    function renderPreviewList() {
+      const wrap = document.getElementById("previewList");
+      wrap.innerHTML = "";
+      const source = getSelectedSource();
+      const candidates = source ? source.candidates : [];
+
+      candidates.forEach(candidate => {
+        const factRows = candidate.facts.map(fact => `
+          <div class="fact-row">
+            <div class="fact-field">
+              <label>항목명</label>
+              <select onchange="updateFactField('${candidate.id}','${fact.id}','type', this.value)">
+                ${FACT_OPTIONS.map(opt => `<option value="${opt}" ${fact.type === opt ? "selected" : ""}>${opt}</option>`).join("")}
+              </select>
+            </div>
+            <div class="fact-field">
+              <label>값</label>
+              <input value="${fact.value}" oninput="updateFactField('${candidate.id}','${fact.id}','value', this.value)" placeholder="예: 2026-07-31 또는 7/말(예상)" />
+            </div>
+            <button class="close-btn" onclick="deleteFact('${candidate.id}','${fact.id}')">×</button>
+          </div>
+        `).join("");
+
+        const div = document.createElement("div");
+        div.className = "candidate-item";
+        div.innerHTML = `
+          <div class="candidate-card">
+            <div class="candidate-top">
+              <label class="candidate-select">
+                <input type="checkbox" ${candidate.checked ? "checked" : ""} onchange="toggleCandidateCheck('${candidate.id}', this.checked)" />
+                <span>선택</span>
+              </label>
+              <button class="close-btn" onclick="deleteCandidate('${candidate.id}')">×</button>
+            </div>
+
+            <div class="candidate-head-grid">
+              <div class="mini-field">
+                <label>차종</label>
+                <input value="${candidate.car}" oninput="updateCandidateField('${candidate.id}','car', this.value)" />
+              </div>
+              <div class="mini-field">
+                <label>이벤트</label>
+                <input value="${candidate.event}" oninput="updateCandidateField('${candidate.id}','event', this.value)" />
+              </div>
+              <div class="mini-field">
+                <label>담당</label>
+                <input value="${candidate.owner}" oninput="updateCandidateField('${candidate.id}','owner', this.value)" />
+              </div>
+            </div>
+
+            <div class="small" style="font-weight:700; color:#374151; margin-bottom:8px;">추출된 일정 항목</div>
+            <div class="fact-list">
+              ${factRows}
+            </div>
+
+            <div class="fact-add-row">
+              <button class="add-fact-btn" onclick="addFact('${candidate.id}')">+ 일정 항목 추가</button>
+            </div>
+          </div>
+        `;
+        wrap.appendChild(div);
+      });
+
+      updateConfirmButton();
+    }
+
+    function updateConfirmButton() {
+      const btn = document.getElementById("confirmBtn");
+      const candidates = getSelectedSource()?.candidates || [];
+      btn.disabled = candidates.filter(x => x.checked).length === 0;
+    }
+
+    function toggleCandidateCheck(id, checked) {
+      const candidate = getSelectedSource()?.candidates.find(x => x.id === id);
+      if (candidate) candidate.checked = checked;
+      updateConfirmButton();
+    }
+
+    function updateCandidateField(id, field, value) {
+      const candidate = getSelectedSource()?.candidates.find(x => x.id === id);
+      if (candidate) candidate[field] = value;
+    }
+
+    function updateFactField(candidateId, factId, field, value) {
+      const candidate = getSelectedSource()?.candidates.find(x => x.id === candidateId);
+      if (!candidate) return;
+      const fact = candidate.facts.find(x => x.id === factId);
+      if (fact) fact[field] = value;
+    }
+
+    function addFact(candidateId) {
+      const candidate = getSelectedSource()?.candidates.find(x => x.id === candidateId);
+      if (!candidate) return;
+      candidate.facts.push({
+        id: "f" + Math.random().toString(36).slice(2, 8),
+        type: "제출요청",
+        value: ""
+      });
+      renderPreviewList();
+    }
+
+    function deleteFact(candidateId, factId) {
+      const candidate = getSelectedSource()?.candidates.find(x => x.id === candidateId);
+      if (!candidate) return;
+      candidate.facts = candidate.facts.filter(x => x.id !== factId);
+      renderPreviewList();
+    }
+
+    function deleteSource(id) {
+      sourceItems = sourceItems.filter(x => x.id !== id);
+      if (selectedSourceId === id) selectedSourceId = sourceItems[0]?.id || null;
+      renderSourceList();
+      renderPreviewList();
+    }
+
+    function deleteCandidate(id) {
+      const source = getSelectedSource();
+      if (!source) return;
+      source.candidates = source.candidates.filter(x => x.id !== id);
+      renderPreviewList();
+    }
+
+    function getCurrentWindow() {
+      return monthWindows.find(x => x.startMonth === currentMonthIndex);
+    }
+
+    function renderTimeScale() {
+      const current = getCurrentWindow();
+      document.getElementById("monthLabel").innerText = current.label;
+      document.getElementById("rightPanelTitle").innerText = `월별 이벤트 조회 - ${current.titleMonth}`;
+      document.getElementById("timeScale").innerHTML = current.scale.map(x => `<div>${x}</div>`).join("");
+    }
+
+    function getLaneStyle(events) {
+      if (events.some(x => x.type === "estimated")) return " estimated";
+      if (events.some(x => x.type === "premeeting")) return " purple";
+      if (events.some(x => x.type === "meeting")) return " green";
+      if (events.some(x => x.type === "report")) return " orange";
+      return "";
+    }
+
+    function renderTimeline() {
+      const wrap = document.getElementById("timelineRows");
+      wrap.innerHTML = "";
+
+      timelineOrder.forEach(key => {
+        const item = timelineData[key];
+        const visible = item.schedule.month === currentMonthIndex || item.schedule.month === currentMonthIndex + 1;
+        if (!visible) return;
+
+        const isSelected = key === selectedKey;
+        const events = item.events;
+        const laneStart = Math.min(...events.map(e => e.pos));
+        const laneEnd = Math.max(...events.map(e => e.pos));
+
+        const markerClassMap = {
+          submit: "submit",
+          meeting: "meeting",
+          premeeting: "premeeting",
+          report: "report",
+          estimated: "estimated"
+        };
+
+        const markerHtml = events.map(e => `
+          <div class="marker ${markerClassMap[e.type]}" style="left:${e.pos}%"></div>
+          <div class="label" style="left:${e.pos}%">${e.label}</div>
+        `).join("");
+
+        const div = document.createElement("div");
+        div.className = "timeline-row" + (isSelected ? " selected" : "");
+        div.onclick = () => selectItem(key);
+        div.innerHTML = `
+          <div class="row-info">
+            <div class="row-title">${item.schedule.title}</div>
+            <div class="row-sub">${item.schedule.meta}</div>
+            <div class="row-tags">
+              <span class="tag">${events.map(e => e.label).join(" → ")}</span>
+            </div>
+          </div>
+          <div class="row-track">
+            ${Array.from({length:8}).map(() => '<div class="track-cell"></div>').join("")}
+            <div class="lane${getLaneStyle(events)}" style="left:${laneStart}%; width:${laneEnd - laneStart}%;"></div>
+            ${markerHtml}
+          </div>
+        `;
+        wrap.appendChild(div);
+      });
+    }
+
+    function renderScheduleList() {
+      const wrap = document.getElementById("scheduleList");
+      wrap.innerHTML = "";
+
+      timelineOrder.forEach(key => {
+        const item = timelineData[key].schedule;
+        if (item.month !== currentMonthIndex) return;
+
+        const div = document.createElement("div");
+        div.className = "schedule-item" + (key === selectedKey ? " selected" : "");
+        div.onclick = () => selectItem(key);
+        div.innerHTML = `
+          <div class="schedule-title">${item.title}</div>
+          <div class="small">${item.meta}</div>
+        `;
+        wrap.appendChild(div);
+      });
+
+      if (!wrap.innerHTML.trim()) {
+        wrap.innerHTML = `<div class="schedule-item"><div class="small">해당 월의 이벤트가 없습니다.</div></div>`;
+      }
+    }
+
+    function renderGrid() {
+      const tbody = document.getElementById("jiraGridBody");
+      tbody.innerHTML = "";
+
+      const onlyMine = document.getElementById("myTicketsOnly").checked;
+      const allTickets = timelineData[selectedKey]?.tickets || [];
+      const tickets = onlyMine
+        ? allTickets.filter(t => t.assignee === MY_ASSIGNEE)
+        : allTickets;
+
+      document.getElementById("gridTitle").innerText = `선택 차종: ${selectedKey.replace("|", " / ")}`;
+
+      tickets.forEach((ticket, idx) => {
+        const tr = document.createElement("tr");
+        tr.className = idx === 0 ? "selected" : "";
+        tr.onclick = () => selectGridRow(tr, ticket);
+        tr.ondblclick = () => openTicketModal(ticket);
+        tr.innerHTML = `
+          <td class="grid-key">${ticket.key}</td>
+          <td>${ticket.stage}</td>
+          <td>${ticket.checkType}</td>
+          <td>${ticket.system}</td>
+          <td><span class="badge-cell ${ticket.status === "Approval" ? "approval" : ""}">${ticket.status}</span></td>
+          <td>${ticket.assignee}</td>
+          <td>${ticket.updated}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      selectedTicket = tickets.length > 0 ? tickets[0] : null;
+    }
+
+    function selectGridRow(tr, ticket) {
+      document.querySelectorAll("#jiraGridBody tr").forEach(row => row.classList.remove("selected"));
+      tr.classList.add("selected");
+      selectedTicket = ticket;
+    }
+
+    function selectItem(key) {
+      selectedKey = key;
+      renderTimeline();
+      renderScheduleList();
+      renderGrid();
+    }
+
+    function openTicketModal(ticket) {
+      if (!ticket) return;
+      document.getElementById("m_key").value = ticket.key;
+      document.getElementById("m_project").value = "VDPGTINSP";
+      document.getElementById("m_car").value = ticket.car;
+      document.getElementById("m_stage").value = ticket.stage;
+      document.getElementById("m_checktype").value = ticket.checkType;
+      document.getElementById("m_system").value = ticket.system;
+      document.getElementById("m_summary").value = ticket.summary;
+      document.getElementById("m_status").value = ticket.status;
+      document.getElementById("m_priority").value = ticket.priority;
+      document.getElementById("m_assignee").value = ticket.assignee;
+      document.getElementById("m_updated").value = ticket.updated;
+      document.getElementById("m_type").value = ticket.type;
+      openModal("detailModal");
+    }
+
+    function openSettingsModal() {
+      openModal("settingsModal");
+    }
+
+    function openModal(id) {
+      document.getElementById(id).classList.add("open");
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.remove("open");
+    }
+
+    document.getElementById("detailModal").addEventListener("click", function(e) {
+      if (e.target === this) closeModal("detailModal");
+    });
+
+    document.getElementById("settingsModal").addEventListener("click", function(e) {
+      if (e.target === this) closeModal("settingsModal");
+    });
+
+    document.getElementById("prevMonthBtn").addEventListener("click", () => {
+      const idx = monthWindows.findIndex(x => x.startMonth === currentMonthIndex);
+      if (idx > 0) {
+        currentMonthIndex = monthWindows[idx - 1].startMonth;
+        renderTimeScale();
+        renderTimeline();
+        renderScheduleList();
+      }
+    });
+
+    document.getElementById("nextMonthBtn").addEventListener("click", () => {
+      const idx = monthWindows.findIndex(x => x.startMonth === currentMonthIndex);
+      if (idx < monthWindows.length - 1) {
+        currentMonthIndex = monthWindows[idx + 1].startMonth;
+        renderTimeScale();
+        renderTimeline();
+        renderScheduleList();
+      }
+    });
+
+    document.getElementById("refreshTimelineBtn").addEventListener("click", () => {
+      renderTimeScale();
+      renderTimeline();
+      renderScheduleList();
+      renderGrid();
+    });
+
+    document.getElementById("confirmBtn").addEventListener("click", () => {
+      alert("선택된 항목이 Confluence 반영 대상으로 처리됩니다.");
+    });
+
+    renderSourceList();
+    renderPreviewList();
+    renderTimeScale();
+    renderTimeline();
+    renderScheduleList();
+    renderGrid();
+  </script>
+</body>
+</html>
